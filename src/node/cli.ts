@@ -17,8 +17,11 @@
  *    the process mid-write truncates whatever the stdio transport had
  *    buffered. The wrapper sets `process.exitCode` and lets node drain.
  *
- * This build registers no tools (phase 1). The verbs above are all there
- * is until phase 2's tools land.
+ * Registers the six N2 tools (plan-2609-05 phase 2): `fetch_scitt_configuration`,
+ * `query_registration`, `fetch_receipt`, `fetch_genesis`, `fetch_accumulator`
+ * and the composed `verify_fetched_receipt`. `createServer()` is called with
+ * no `deps`, so it reads `process.env` and calls the real `globalThis.fetch` —
+ * exactly what `npx -y @forestrie/mcp-resolve` should do.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { PACKAGE_VERSION, VERIFIER_VERSION } from "../core/index.js";
@@ -36,7 +39,12 @@ USAGE
   forestrie-mcp-resolve --version
 
 TOOLS
-  This build registers none. Tools arrive in a later release.
+  fetch_scitt_configuration  fetch_receipt         fetch_accumulator
+  query_registration         fetch_genesis         verify_fetched_receipt
+
+ENVIRONMENT (optional; never a package default)
+  FORESTRIE_BASE_URL   used when a call omits baseUrl
+  FORESTRIE_RPC_URL    used when a call omits rpcUrl
 
 CLIENT CONFIG
   {"mcpServers": {"forestrie-resolve":
