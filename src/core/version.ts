@@ -30,3 +30,20 @@ export const RECEIPT_VERIFY_VERSION = "1.0.0";
 /** Keep in sync with package.json#dependencies["@forestrie/encoding"].
  *  Asserted by test/core/version.test.ts. */
 export const ENCODING_VERSION = "0.7.0";
+
+/**
+ * This package's identity as the courier that fetches for
+ * `@forestrie/mcp-verify` to verify (N1): named alongside the verifier and
+ * its pinned version, so a networked result can always name both packages.
+ *
+ * Lives here, not in index.ts: compose.ts needs it too, and importing it
+ * from index.ts (the "." barrel that re-exports compose.ts) would be a
+ * cycle. version.ts has no imports of its own, so both index.ts and
+ * compose.ts can import COURIER from here without one.
+ */
+export const COURIER = {
+  package: "@forestrie/mcp-resolve",
+  version: PACKAGE_VERSION,
+  verifier: "@forestrie/mcp-verify",
+  verifierVersion: VERIFIER_VERSION,
+} as const;
