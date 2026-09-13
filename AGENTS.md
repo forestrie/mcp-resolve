@@ -5,8 +5,9 @@ invariants that make the package's claims checkable, and each one is enforced
 by something that will go red.
 
 This repo is the courier: it fetches receipts, genesis documents and
-accumulator snapshots for `@forestrie/mcp-verify` to verify. It never
-verifies anything itself and it never claims to. See plan-2609-05
+accumulator snapshots for `@forestrie/mcp-verify` to verify. It has no
+verification arithmetic of its own: the composed tool runs the verifier's
+published core and passes its answers through unaltered. See plan-2609-05
 (`devdocs/plans/plan-2609-05-mcp-verify-online/`, orchestrator-side) for the
 decisions (`N1`–`N9`) this file implements.
 
