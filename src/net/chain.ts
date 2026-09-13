@@ -63,15 +63,16 @@ function rpcErrorProblem(
   };
 }
 
-type JsonRpcOutcome =
+export type JsonRpcOutcome =
   | { ok: true; result: unknown }
   | { ok: false; result: { kind: "problem"; problem: LogStateProblem } };
 
 /** One JSON-RPC call, interpreted: an HTTP-level failure, a JSON-RPC
  *  `error` member, or a missing `result` field are all `rpc_error`
  *  problems — never a throw (that is `NetError`'s job, for "no response at
- *  all"). */
-async function callJsonRpc(
+ *  all"). Exported so `history.ts`'s `eth_getLogs` walk shares this
+ *  interpretation instead of a second copy. */
+export async function callJsonRpc(
   rpcUrl: string,
   id: number,
   method: string,
