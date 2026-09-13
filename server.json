@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "dev.forestrie/resolve",
+  "description": "Fetches from a Forestrie log or its chain the material @forestrie/mcp-verify verifies — receipts, genesis documents, accumulator snapshots, registration status — and says where every byte came from and which of the four trust questions it can support.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/forestrie/mcp-resolve",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/forestrie/mcp-resolve#readme",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@forestrie/mcp-resolve",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "-y",
+          "isRequired": true
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "FORESTRIE_BASE_URL",
+          "description": "SCRAPI base URL used when a call omits baseUrl. Optional; the package ships no default and names no operator.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "FORESTRIE_RPC_URL",
+          "description": "JSON-RPC endpoint used when a call omits rpcUrl: your own chain access. Optional; the package ships no default and names no provider.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
