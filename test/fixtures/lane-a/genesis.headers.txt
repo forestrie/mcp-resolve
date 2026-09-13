@@ -1,0 +1,15 @@
+HTTP/2 200 
+date: Sun, 13 Sep 2026 14:22:44 GMT
+content-type: application/cbor
+content-length: 160
+access-control-allow-origin: *
+cache-control: public, max-age=31536000, immutable
+access-control-allow-headers: Content-Type, Authorization, X-PAYMENT, X-Ops-Authorization
+access-control-allow-methods: GET, POST, PUT, OPTIONS
+access-control-expose-headers: X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=dHyluqCdKe%2BHpgEqrKpSp%2BstOgCgZs16eZ99vDpS6uXju5nvqzXylS9NBkVmTWQIbKxcO1PI0YIzYf67tZkUnLxn5pNL6Gszz0ClVXcBduCjHmrgOp44a99LTewpnmgs0Dpi9riYm%2FHK%2BxDIc0P%2B0y8RLMxe3mov5Ffb"}]}
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+server: cloudflare
+cf-ray: a3a7ce47ae3877a1-LHR
+alt-svc: h3=":443"; ma=86400
+
