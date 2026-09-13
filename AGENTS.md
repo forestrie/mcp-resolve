@@ -160,8 +160,7 @@ advisory.
 The whole policy for one package: merge a version-bump PR, then
 `git tag v<version> && git push --tags`. `scripts/assert-publish-version.sh`
 makes a mistyped tag fail closed, and CI self-tests both its pass and fail
-paths on every PR — bootstrapped now, ahead of the `publish.yml` that will
-call it (phase 3, out of scope for this repo's bootstrap).
+paths on every PR.
 
 1. Bump `version` in `package.json` **and** `PACKAGE_VERSION` in
    `src/core/version.ts` in the same PR. The MCP smoke test asserts they
@@ -172,24 +171,29 @@ call it (phase 3, out of scope for this repo's bootstrap).
    or if `server.json#name` no longer matches `package.json#mcpName`.
 3. Merge to `main`.
 4. `git tag v<version> && git push --tags`.
-5. A future `publish.yml` (phase 3) asserts the tag matches
-   `package.json`, runs the full gate, builds, packs, and publishes to npm
-   via OIDC trusted publishing with provenance, then lists
-   `dev.forestrie/resolve` with the official MCP registry the same way the
-   verifier's `publish.yml` does.
+5. `.github/workflows/publish.yml` asserts the tag matches `package.json`,
+   runs the full gate, builds, packs, and publishes to npm via OIDC trusted
+   publishing with provenance, then lists `dev.forestrie/resolve` with the
+   official MCP registry the same way the verifier's `publish.yml` does. It
+   has no self-registration step (plan-2609-05 N2: this package registers
+   nothing) — the verifier's release registers its own provenance, this
+   one does not.
 
-**The first publish must be by hand**, exactly as it was for the verifier:
+**The first publish was by hand**, exactly as it was for the verifier:
 npm's trusted-publisher registration cannot be created for a package that
-does not exist yet, so the trusted publisher is a phase-3 prerequisite
-created only _after_ that first manual `npm publish`. A local publish
-cannot mint provenance and `publishConfig.provenance` is `true`, so that one
-publish runs `npm publish --provenance=false`; the first attested version is
-the first one the eventual `publish.yml` ships.
+does not exist yet. `@forestrie/mcp-resolve@0.1.0` was published unattested
+on 2026-09-13 (`npm publish --provenance=false`), and the trusted publisher
+(GitHub Actions, org `forestrie`, repo `mcp-resolve`, workflow
+`publish.yml`, environment `npm-publish`, publish permission — not
+stage-only, see the verifier's AGENTS.md for why that distinction matters)
+was registered immediately after. Consequence: `publish.yml`'s first
+attested release is `0.1.1`, not `0.1.0`.
 
 The MCP registry listing needs the same owner-side DNS and secret setup the
-verifier's does (the apex TXT record on `forestrie.dev` and
-`MCP_PUBLISHER_DNS_PRIVATE_KEY` in the `npm-publish` GitHub environment) —
-tracked in plan-2609-05's phase 1 step 1.4, not repeated here.
+verifier's does: the apex TXT record on `forestrie.dev` (already in place
+for `dev.forestrie/verify` and authorising every name under
+`dev.forestrie/*`, so no new DNS work for this package) and
+`MCP_PUBLISHER_DNS_PRIVATE_KEY` in the `npm-publish` GitHub environment.
 
 ## Links must resolve without org access
 
