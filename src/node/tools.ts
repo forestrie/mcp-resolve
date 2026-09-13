@@ -1,0 +1,1130 @@
+/**
+ * The six N2 tools: zod input/output shapes and handlers. Every handler
+ * returns `{ content, structuredContent, isError: false }` — an HTTP
+ * problem, a 429, a `NetError`, a chain problem, and a malformed input are
+ * ALL a `structuredContent.problem`, never a throw (N8, AGENTS.md). Only a
+ * genuine programming error escapes `guardHandler` below and becomes an
+ * MCP-level tool error.
+ *
+ * Every `structuredContent` carries `supports` (`SUPPORTS[toolName]`,
+ * verbatim from `src/core/provenance.ts`) and, for every artefact actually
+ * obtained, `provenance` (N3). `verify_fetched_receipt` never uses a
+ * genesis fetched in the same call as its root: the input schema's `trust`
+ * union admits caller-supplied bytes or `{root:"known-accumulator",
+ * chain:…}` only — there is no fetched-genesis variant (N2 "explicitly
+ * out").
+ */
+import { createHash } from "node:crypto";
+import { z } from "zod";
+import {
+  DecodeReceiptError,
+  decodeReceipt,
+  type TrustRoot,
+} from "@forestrie/mcp-verify";
+import {
+  EndpointError,
+  GenesisBindingError,
+  SUPPORTS,
+  classify,
+  decodeChainBindingFromGenesis,
+  summarizeFetched,
+  verifyFetched,
+  type ChainBinding,
+  type FetchedVerifyResult,
+  type Provenance,
+  type ToolName,
+} from "../core/index.js";
+import {
+  NetError,
+  fetchAccumulatorSnapshot,
+  fetchGenesis,
+  fetchReceipt,
+  fetchScittConfiguration,
+  queryRegistration,
+  toClassifyView,
+  type FetchReceiptInput,
+} from "../net/index.js";
+import { InputError, resolveBytes, type BytesInput } from "./resolve-input.js";
+
+/** The resolved form of `server.ts`'s `Deps`: every field defaulted. */
+export type ResolvedDeps = {
+  fetchImpl: typeof fetch;
+  env: Record<string, string | undefined>;
+  now: () => Date;
+};
+
+/* ------------------------------ wire shapes ------------------------------ */
+
+const BytesInputSchema = z
+  .union([
+    z.object({ base64: z.string().min(1) }).describe("standard base64"),
+    z
+      .object({ path: z.string().min(1) })
+      .describe("filesystem path, read by the stdio adapter"),
+  ])
+  .describe("Bytes as base64, or a path the local server reads");
+
+const LogIdSchema = z
+  .string()
+  .min(1)
+  .describe("UUID (with dashes), or a 16/32-byte hex log id");
+
+const EntryIdSchema = z
+  .string()
+  .regex(/^[0-9a-f]{32}$/)
+  .describe("32 lowercase hex: idtimestamp_be8 || mmrIndex_be8");
+
+const BaseUrlSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "any SCRAPI base URL; falls back to FORESTRIE_BASE_URL when omitted — never defaulted by the package itself",
+  );
+
+const RpcUrlSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "your own chain RPC access; falls back to FORESTRIE_RPC_URL when omitted — the package ships no provider",
+  );
+
+const AddressSchema = z
+  .string()
+  .min(1)
+  .describe("0x-prefixed or bare 40-hex address");
+
+/** N2 amendment A: the chain binding comes from a genesis you hold, or is
+ *  given explicitly. There is no third form, and `rpcUrl` is the only
+ *  field this package will ever read from the environment. */
+const ChainInputSchema = z
+  .union([
+    z.object({
+      genesis: BytesInputSchema.describe(
+        "a genesis document you hold; univocity and chainId are decoded from it",
+      ),
+      rpcUrl: RpcUrlSchema.optional(),
+      logId: LogIdSchema,
+    }),
+    z.object({
+      rpcUrl: RpcUrlSchema.optional(),
+      univocity: AddressSchema,
+      logId: LogIdSchema,
+      chainId: z
+        .number()
+        .int()
+        .optional()
+        .describe("checked against eth_chainId before any eth_call, if given"),
+    }),
+  ])
+  .describe(
+    "The forest's chain binding: from a genesis you hold, or given explicitly. Never defaulted, never taken from a fetched genesis, never read from the environment except rpcUrl.",
+  );
+
+/** The receipt locator's fields, flattened onto the tool's own top-level
+ *  arguments (both `fetch_receipt` and `verify_fetched_receipt`) rather
+ *  than nested under a key — either `receiptUrl` alone, or all four of
+ *  `bootstrapLogId`/`logId`/`massifHeight`/`entryId` plus `baseUrl`
+ *  (falling back to `FORESTRIE_BASE_URL`). On `verify_fetched_receipt`,
+ *  `entryId` does double duty: it also names the entry being verified. */
+const receiptLocatorFieldsShape = {
+  receiptUrl: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("as returned by query_registration"),
+  baseUrl: BaseUrlSchema.optional(),
+  bootstrapLogId: LogIdSchema.optional(),
+  logId: LogIdSchema.optional(),
+  massifHeight: z.number().int().nonnegative().optional(),
+  entryId: EntryIdSchema.optional(),
+};
+
+const TrustRootWireSchema = z.discriminatedUnion("root", [
+  z.object({ root: z.literal("genesis"), genesis: BytesInputSchema }),
+  z.object({
+    root: z.literal("known-log-key"),
+    keyXy: BytesInputSchema.describe("raw 64-byte P-256 x||y"),
+  }),
+  z.object({
+    root: z.literal("known-accumulator"),
+    accumulator: BytesInputSchema.describe(
+      "encodeKnownAccumulator snapshot bytes you hold",
+    ),
+    massif: BytesInputSchema.optional(),
+    consistencyProof: BytesInputSchema.optional(),
+  }),
+  z.object({
+    root: z.literal("checkpoint-chain"),
+    checkpoints: z.array(BytesInputSchema).min(1),
+    genesis: BytesInputSchema.optional(),
+    keyXy: BytesInputSchema.optional(),
+  }),
+]);
+
+/** Bytes you supply, or (known-accumulator only) a chain read in this call.
+ *  Deliberately NOT admitting `{root:"genesis", fetch:…}` or any other
+ *  fetched-genesis form (N2 "explicitly out"). */
+const TrustInputSchema = z
+  .union([
+    TrustRootWireSchema,
+    z.object({
+      root: z.literal("known-accumulator"),
+      chain: ChainInputSchema,
+    }),
+  ])
+  .describe(
+    "Which trust root to verify under: bytes you supply (genesis, keyXy, accumulator, checkpoints), or {root:'known-accumulator', chain:…} to read the accumulator from the chain in this call. Never a genesis fetched in this same call.",
+  );
+
+/* ------------------------------ output shapes ------------------------------ */
+
+const ProvenanceSchema = z.looseObject({
+  source: z.enum(["fetched", "chain-read", "supplied"]),
+  from: z.union([
+    z.string(),
+    z.object({
+      rpcUrl: z.string(),
+      univocity: z.string(),
+      chainId: z.number(),
+    }),
+  ]),
+  at: z.string(),
+  binding: z.enum(["held-genesis", "explicit"]).optional(),
+});
+
+const SupportsSchema = z.looseObject({
+  rows: z.array(z.looseObject({ question: z.string(), root: z.string() })),
+  note: z.string(),
+});
+
+const ProblemSchema = z.looseObject({ code: z.string() });
+
+const BytesSummarySchema = z.object({
+  base64: z.string(),
+  byteLength: z.number(),
+  sha256: z.string(),
+});
+
+const ChainBindingSchema = z.object({
+  univocity: z.string(),
+  chainId: z.number(),
+  forestLogId: z.string(),
+});
+
+/* ------------------------------------------------------------------ *
+ * Per-tool input/output raw shapes (`{ key: ZodType }`), as the SDK
+ * 1.30.0 wants — see @forestrie/mcp-verify's src/node/tools.ts.
+ * ------------------------------------------------------------------ */
+
+export const fetchScittConfigurationInputShape = {
+  baseUrl: BaseUrlSchema.optional(),
+};
+export const fetchScittConfigurationOutputShape = {
+  configuration: z.unknown().optional(),
+  provenance: ProvenanceSchema.optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+export const queryRegistrationInputShape = {
+  baseUrl: BaseUrlSchema.optional(),
+  bootstrapLogId: LogIdSchema,
+  logId: LogIdSchema,
+  contentHash: z
+    .string()
+    .min(1)
+    .describe("hex sha256 of the signed statement bytes"),
+};
+export const queryRegistrationOutputShape = {
+  status: z.enum(["pending", "receipt-available"]).optional(),
+  location: z.string().optional(),
+  retryAfterMs: z.number().optional(),
+  receiptUrl: z.string().optional(),
+  entryId: z.string().optional(),
+  provenance: ProvenanceSchema.optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+export const fetchReceiptInputShape = { ...receiptLocatorFieldsShape };
+export const fetchReceiptOutputShape = {
+  receipt: BytesSummarySchema.optional(),
+  decoded: z.unknown().optional(),
+  provenance: ProvenanceSchema.optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+export const fetchGenesisInputShape = {
+  baseUrl: BaseUrlSchema.optional(),
+  logId: LogIdSchema,
+};
+export const fetchGenesisOutputShape = {
+  genesis: BytesSummarySchema.optional(),
+  chainBinding: ChainBindingSchema.optional(),
+  provenance: ProvenanceSchema.optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+export const fetchAccumulatorInputShape = {
+  chain: ChainInputSchema,
+};
+export const fetchAccumulatorOutputShape = {
+  snapshot: BytesSummarySchema.optional(),
+  accumulator: z
+    .object({
+      size: z.number(),
+      peaks: z.array(z.string()),
+      blockNumber: z.number(),
+      blockHash: z.string(),
+      chainId: z.number(),
+      univocity: z.string(),
+      logId: z.string(),
+    })
+    .optional(),
+  provenance: ProvenanceSchema.optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+export const verifyFetchedReceiptInputShape = {
+  ...receiptLocatorFieldsShape,
+  trust: TrustInputSchema,
+  payload: BytesInputSchema.optional().describe(
+    "the exact registered payload (payload verification), or the committed grant bytes when grant:true",
+  ),
+  entryId: EntryIdSchema.optional().describe(
+    "required for payload verification; optional for a COSE grant, required for a raw grant payload",
+  ),
+  grant: z
+    .boolean()
+    .optional()
+    .describe(
+      "true to verify a grant receipt (verifyGrantReceipt) instead of a payload receipt",
+    ),
+};
+export const verifyFetchedReceiptOutputShape = {
+  ok: z.boolean().optional(),
+  root: z.string().optional(),
+  stage: z.string().optional(),
+  reason: z.string().optional(),
+  stages: z.array(z.unknown()).optional(),
+  anchor: z.unknown().optional(),
+  questions: z.unknown().optional(),
+  diagnostics: z.array(z.unknown()).optional(),
+  verifier: z.unknown().optional(),
+  courier: z.unknown().optional(),
+  provenance: z
+    .object({ receipt: ProvenanceSchema, root: ProvenanceSchema })
+    .optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+/* ------------------------------- helpers -------------------------------- */
+
+type ToolResult = {
+  content: [{ type: "text"; text: string }];
+  structuredContent: Record<string, unknown>;
+  isError: false;
+};
+
+function ok(
+  text: string,
+  structuredContent: Record<string, unknown>,
+): ToolResult {
+  return {
+    content: [{ type: "text", text }],
+    structuredContent,
+    isError: false,
+  };
+}
+
+function problemResult(
+  toolName: ToolName,
+  problem: Record<string, unknown>,
+): ToolResult {
+  const message =
+    typeof problem["message"] === "string"
+      ? problem["message"]
+      : typeof problem["detail"] === "string"
+        ? problem["detail"]
+        : JSON.stringify(problem);
+  const code =
+    typeof problem["code"] === "string" ? problem["code"] : "problem";
+  return ok(`problem (${code}): ${message}`, {
+    problem,
+    supports: SUPPORTS[toolName],
+  });
+}
+
+function missingInput(
+  toolName: ToolName,
+  field: string,
+  envVar: string,
+): ToolResult {
+  return problemResult(toolName, {
+    code: "missing_input",
+    message: `${field} is required: pass it explicitly or set ${envVar}`,
+  });
+}
+
+function bytesSummary(bytes: Uint8Array): {
+  base64: string;
+  byteLength: number;
+  sha256: string;
+} {
+  return {
+    base64: Buffer.from(bytes).toString("base64"),
+    byteLength: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+function fetchedProvenance(from: string, at: string): Provenance {
+  return { source: "fetched", from, at };
+}
+
+function suppliedProvenance(at: string): Provenance {
+  return { source: "supplied", from: "supplied by caller", at };
+}
+
+function chainReadProvenance(
+  rpcUrl: string,
+  univocity: string,
+  chainId: number,
+  at: string,
+  binding: "held-genesis" | "explicit",
+): Provenance {
+  return {
+    source: "chain-read",
+    from: { rpcUrl, univocity, chainId },
+    at,
+    binding,
+  };
+}
+
+/** Field mapping from core's `Classified` "problem" kind onto this
+ *  package's `structuredContent.problem` shape — a `code` alongside
+ *  whatever `classify.ts` produced, so every problem shape this package
+ *  returns carries `code`. */
+function classifiedProblemValue(classified: {
+  status: number;
+  retryAfterMs?: number;
+  detail: string;
+  problem?: unknown;
+}): Record<string, unknown> {
+  return {
+    code: classified.status === 429 ? "rate_limited" : "http_error",
+    status: classified.status,
+    detail: classified.detail,
+    ...(classified.retryAfterMs !== undefined
+      ? { retryAfterMs: classified.retryAfterMs }
+      : {}),
+    ...(classified.problem !== undefined
+      ? { problemDetails: classified.problem }
+      : {}),
+  };
+}
+
+function resolveBaseUrl(
+  explicit: string | undefined,
+  deps: ResolvedDeps,
+): string | undefined {
+  return explicit ?? deps.env["FORESTRIE_BASE_URL"];
+}
+
+function resolveRpcUrl(
+  explicit: string | undefined,
+  deps: ResolvedDeps,
+): string | undefined {
+  return explicit ?? deps.env["FORESTRIE_RPC_URL"];
+}
+
+/**
+ * Every handler runs through this. An `InputError` (malformed base64/path),
+ * an `EndpointError` (a bad baseUrl/logId/address string), a
+ * `GenesisBindingError` (an unusable genesis document) or a `NetError` (no
+ * response at all) are all "the input, or the network, did not cooperate" —
+ * a `structuredContent.problem`, never a throw (N8). Anything else is a
+ * programming error and is left to propagate as an MCP tool error.
+ */
+async function guardHandler(
+  toolName: ToolName,
+  run: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+  try {
+    return await run();
+  } catch (err) {
+    if (err instanceof InputError) {
+      return problemResult(toolName, {
+        code: "invalid_input",
+        message: err.message,
+      });
+    }
+    if (err instanceof EndpointError) {
+      return problemResult(toolName, {
+        code: "invalid_input",
+        message: err.message,
+      });
+    }
+    if (err instanceof GenesisBindingError) {
+      return problemResult(toolName, {
+        code: err.code,
+        message: err.message,
+        reason: err.reason,
+      });
+    }
+    if (err instanceof NetError) {
+      return problemResult(toolName, { code: err.code, message: err.message });
+    }
+    throw err;
+  }
+}
+
+/* --------------------------- receipt locator ----------------------------- */
+
+type FlatReceiptFields = {
+  receiptUrl?: string | undefined;
+  baseUrl?: string | undefined;
+  bootstrapLogId?: string | undefined;
+  logId?: string | undefined;
+  massifHeight?: number | undefined;
+  entryId?: string | undefined;
+};
+
+/** `receiptUrl` alone, or all four of `bootstrapLogId`/`logId`/
+ *  `massifHeight`/`entryId` (plus a `baseUrl`, explicit or from
+ *  `FORESTRIE_BASE_URL`) — never a throw for a caller who supplied
+ *  neither shape completely, a `missing_input` problem naming what's
+ *  absent instead. */
+function resolveReceiptLocator(
+  input: FlatReceiptFields,
+  deps: ResolvedDeps,
+):
+  | { ok: true; value: FetchReceiptInput }
+  | { ok: false; problem: Record<string, unknown> } {
+  if (input.receiptUrl !== undefined) {
+    return { ok: true, value: { receiptUrl: input.receiptUrl } };
+  }
+  const baseUrl = resolveBaseUrl(input.baseUrl, deps);
+  const missing: string[] = [];
+  if (baseUrl === undefined) missing.push("baseUrl (or FORESTRIE_BASE_URL)");
+  if (input.bootstrapLogId === undefined) missing.push("bootstrapLogId");
+  if (input.logId === undefined) missing.push("logId");
+  if (input.massifHeight === undefined) missing.push("massifHeight");
+  if (input.entryId === undefined) missing.push("entryId");
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      problem: {
+        code: "missing_input",
+        message: `receiptUrl, or all of baseUrl/bootstrapLogId/logId/massifHeight/entryId, are required; missing: ${missing.join(", ")}`,
+      },
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      baseUrl: baseUrl as string,
+      bootstrapLogId: input.bootstrapLogId as string,
+      logId: input.logId as string,
+      massifHeight: input.massifHeight as number,
+      entryId: input.entryId as string,
+    },
+  };
+}
+
+/** One GET, classified. A 404 ("still writing") becomes a `pending`
+ *  problem rather than the bytes; every other non-2xx is `classify`'s own
+ *  `problem` kind. */
+async function fetchAndClassifyReceipt(
+  locator: FetchReceiptInput,
+  deps: ResolvedDeps,
+): Promise<
+  | { kind: "ok"; bytes: Uint8Array; url: string; at: string }
+  | { kind: "problem"; problem: Record<string, unknown> }
+> {
+  const raw = await fetchReceipt(locator, { fetchImpl: deps.fetchImpl });
+  const view = toClassifyView(raw);
+  const classified = classify(
+    "receipt",
+    { ...view, location: view.location ?? raw.url },
+    raw.url,
+  );
+  if (classified.kind === "problem") {
+    return { kind: "problem", problem: classifiedProblemValue(classified) };
+  }
+  if (classified.kind === "pending") {
+    return {
+      kind: "problem",
+      problem: {
+        code: "pending",
+        location: classified.location,
+        ...(classified.retryAfterMs !== undefined
+          ? { retryAfterMs: classified.retryAfterMs }
+          : {}),
+        message: "the receipt is not written yet; retry later",
+      },
+    };
+  }
+  if (classified.kind !== "receipt") {
+    throw new Error(
+      `unreachable: classify("receipt", …) returned kind ${classified.kind}`,
+    );
+  }
+  return { kind: "ok", bytes: classified.bytes, url: raw.url, at: raw.at };
+}
+
+/* ----------------------------- chain input -------------------------------- */
+
+type ChainInput =
+  | { genesis: BytesInput; rpcUrl?: string | undefined; logId: string }
+  | {
+      rpcUrl?: string | undefined;
+      univocity: string;
+      logId: string;
+      chainId?: number | undefined;
+    };
+
+type ResolvedChain = {
+  rpcUrl: string;
+  univocity: string;
+  logId: string;
+  expectedChainId: number | undefined;
+  binding: "held-genesis" | "explicit";
+};
+
+function resolveChainInput(
+  input: ChainInput,
+  deps: ResolvedDeps,
+):
+  | { ok: true; value: ResolvedChain }
+  | { ok: false; problem: Record<string, unknown> } {
+  const rpcUrl = resolveRpcUrl(input.rpcUrl, deps);
+  if (rpcUrl === undefined) {
+    return {
+      ok: false,
+      problem: {
+        code: "missing_input",
+        message:
+          "rpcUrl is required: pass it explicitly or set FORESTRIE_RPC_URL",
+      },
+    };
+  }
+  if ("genesis" in input) {
+    const genesisBytes = resolveBytes(input.genesis, "chain.genesis");
+    const binding: ChainBinding = decodeChainBindingFromGenesis(genesisBytes);
+    return {
+      ok: true,
+      value: {
+        rpcUrl,
+        univocity: binding.univocity,
+        logId: input.logId,
+        expectedChainId: binding.chainId,
+        binding: "held-genesis",
+      },
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      rpcUrl,
+      univocity: input.univocity,
+      logId: input.logId,
+      expectedChainId: input.chainId,
+      binding: "explicit",
+    },
+  };
+}
+
+/* ------------------------------- handlers --------------------------------- */
+
+function extractServiceId(json: unknown): string | undefined {
+  if (json !== null && typeof json === "object" && "serviceId" in json) {
+    const value = (json as { serviceId: unknown }).serviceId;
+    return typeof value === "string" ? value : undefined;
+  }
+  return undefined;
+}
+
+async function handleFetchScittConfiguration(
+  args: { baseUrl?: string | undefined },
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const baseUrl = resolveBaseUrl(args.baseUrl, deps);
+  if (baseUrl === undefined) {
+    return missingInput(
+      "fetch_scitt_configuration",
+      "baseUrl",
+      "FORESTRIE_BASE_URL",
+    );
+  }
+
+  const raw = await fetchScittConfiguration(
+    { baseUrl },
+    { fetchImpl: deps.fetchImpl },
+  );
+  const classified = classify("configuration", toClassifyView(raw), baseUrl);
+  if (classified.kind === "problem") {
+    return problemResult(
+      "fetch_scitt_configuration",
+      classifiedProblemValue(classified),
+    );
+  }
+  if (classified.kind !== "configuration") {
+    throw new Error(
+      `unreachable: classify("configuration", …) returned kind ${classified.kind}`,
+    );
+  }
+
+  const provenance = fetchedProvenance(raw.url, raw.at);
+  const serviceId = extractServiceId(classified.json);
+  const text =
+    serviceId !== undefined
+      ? `fetched SCITT configuration (serviceId ${serviceId}) from ${raw.url}`
+      : `fetched SCITT configuration from ${raw.url}`;
+
+  return ok(text, {
+    configuration: classified.json,
+    provenance,
+    supports: SUPPORTS.fetch_scitt_configuration,
+  });
+}
+
+async function handleQueryRegistration(
+  args: {
+    baseUrl?: string | undefined;
+    bootstrapLogId: string;
+    logId: string;
+    contentHash: string;
+  },
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const baseUrl = resolveBaseUrl(args.baseUrl, deps);
+  if (baseUrl === undefined) {
+    return missingInput("query_registration", "baseUrl", "FORESTRIE_BASE_URL");
+  }
+
+  const raw = await queryRegistration(
+    {
+      baseUrl,
+      bootstrapLogId: args.bootstrapLogId,
+      logId: args.logId,
+      contentHash: args.contentHash,
+    },
+    { fetchImpl: deps.fetchImpl },
+  );
+  const classified = classify("registration", toClassifyView(raw), baseUrl);
+  if (classified.kind === "problem") {
+    return problemResult(
+      "query_registration",
+      classifiedProblemValue(classified),
+    );
+  }
+
+  const provenance = fetchedProvenance(raw.url, raw.at);
+  if (classified.kind === "pending") {
+    return ok(`registration pending; retry ${classified.location}`, {
+      status: "pending",
+      location: classified.location,
+      ...(classified.retryAfterMs !== undefined
+        ? { retryAfterMs: classified.retryAfterMs }
+        : {}),
+      provenance,
+      supports: SUPPORTS.query_registration,
+    });
+  }
+
+  if (classified.kind !== "receipt-location") {
+    throw new Error(
+      `unreachable: classify("registration", …) returned kind ${classified.kind}`,
+    );
+  }
+  return ok(`registration complete; receipt at ${classified.receiptUrl}`, {
+    status: "receipt-available",
+    receiptUrl: classified.receiptUrl,
+    entryId: classified.entryIdHex,
+    provenance,
+    supports: SUPPORTS.query_registration,
+  });
+}
+
+async function handleFetchReceipt(
+  args: FlatReceiptFields,
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const locator = resolveReceiptLocator(args, deps);
+  if (!locator.ok) return problemResult("fetch_receipt", locator.problem);
+
+  const fetched = await fetchAndClassifyReceipt(locator.value, deps);
+  if (fetched.kind === "problem")
+    return problemResult("fetch_receipt", fetched.problem);
+
+  let decoded: unknown;
+  try {
+    decoded = decodeReceipt(fetched.bytes);
+  } catch (err) {
+    if (err instanceof DecodeReceiptError) {
+      return problemResult("fetch_receipt", {
+        code: "receipt_malformed",
+        stage: err.stage,
+        message: err.message,
+      });
+    }
+    throw err;
+  }
+
+  const provenance = fetchedProvenance(fetched.url, fetched.at);
+  return ok(
+    `fetched receipt (${fetched.bytes.length} B) from ${fetched.url}`,
+    {
+      receipt: bytesSummary(fetched.bytes),
+      decoded,
+      provenance,
+      supports: SUPPORTS.fetch_receipt,
+    },
+  );
+}
+
+async function handleFetchGenesis(
+  args: { baseUrl?: string | undefined; logId: string },
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const baseUrl = resolveBaseUrl(args.baseUrl, deps);
+  if (baseUrl === undefined) {
+    return missingInput("fetch_genesis", "baseUrl", "FORESTRIE_BASE_URL");
+  }
+
+  const raw = await fetchGenesis(
+    { baseUrl, logId: args.logId },
+    { fetchImpl: deps.fetchImpl },
+  );
+  const classified = classify("genesis", toClassifyView(raw), baseUrl);
+  if (classified.kind === "problem") {
+    return problemResult("fetch_genesis", classifiedProblemValue(classified));
+  }
+  if (classified.kind !== "genesis") {
+    throw new Error(
+      `unreachable: classify("genesis", …) returned kind ${classified.kind}`,
+    );
+  }
+
+  // GenesisBindingError, if the fetched document does not decode, is caught
+  // by guardHandler — this handler does not need its own try/catch for it.
+  const chainBinding = decodeChainBindingFromGenesis(classified.bytes);
+
+  const provenance = fetchedProvenance(raw.url, raw.at);
+  return ok(
+    `fetched genesis (${classified.bytes.length} B) from ${raw.url}: univocity ${chainBinding.univocity} on chain ${chainBinding.chainId}`,
+    {
+      genesis: bytesSummary(classified.bytes),
+      chainBinding,
+      provenance,
+      supports: SUPPORTS.fetch_genesis,
+    },
+  );
+}
+
+async function handleFetchAccumulator(
+  args: { chain: ChainInput },
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const resolved = resolveChainInput(args.chain, deps);
+  if (!resolved.ok)
+    return problemResult("fetch_accumulator", resolved.problem);
+  const { rpcUrl, univocity, logId, expectedChainId, binding } =
+    resolved.value;
+
+  const result = await fetchAccumulatorSnapshot(
+    {
+      rpcUrl,
+      univocity,
+      logId,
+      ...(expectedChainId !== undefined ? { expectedChainId } : {}),
+    },
+    { fetchImpl: deps.fetchImpl },
+  );
+  if (result.kind === "problem") {
+    return problemResult("fetch_accumulator", { ...result.problem });
+  }
+
+  const provenance = chainReadProvenance(
+    rpcUrl,
+    result.univocity,
+    result.chainId,
+    result.at,
+    binding,
+  );
+  return ok(
+    `read accumulator (size ${result.size}) from ${result.univocity} on chain ${result.chainId} at block ${result.blockNumber}`,
+    {
+      snapshot: bytesSummary(result.snapshot),
+      accumulator: {
+        size: Number(result.size),
+        peaks: result.accumulator.map(
+          (p) => `0x${Buffer.from(p).toString("hex")}`,
+        ),
+        blockNumber: Number(result.blockNumber),
+        blockHash: result.blockHash,
+        chainId: result.chainId,
+        univocity: result.univocity,
+        logId,
+      },
+      provenance,
+      supports: SUPPORTS.fetch_accumulator,
+    },
+  );
+}
+
+/* --------------------------- verify_fetched_receipt ------------------------ */
+
+type TrustRootWireInput =
+  | { root: "genesis"; genesis: BytesInput }
+  | { root: "known-log-key"; keyXy: BytesInput }
+  | {
+      root: "known-accumulator";
+      accumulator: BytesInput;
+      massif?: BytesInput | undefined;
+      consistencyProof?: BytesInput | undefined;
+    }
+  | {
+      root: "checkpoint-chain";
+      checkpoints: BytesInput[];
+      genesis?: BytesInput | undefined;
+      keyXy?: BytesInput | undefined;
+    };
+
+type TrustInput =
+  TrustRootWireInput | { root: "known-accumulator"; chain: ChainInput };
+
+/** Mirrors `@forestrie/mcp-verify`'s `resolveRoot`, over `base64`-named bytes. */
+function resolveSuppliedRoot(input: TrustRootWireInput): TrustRoot {
+  switch (input.root) {
+    case "genesis":
+      return {
+        root: "genesis",
+        genesis: resolveBytes(input.genesis, "trust.genesis"),
+      };
+    case "known-log-key":
+      return {
+        root: "known-log-key",
+        keyXy: resolveBytes(input.keyXy, "trust.keyXy"),
+      };
+    case "known-accumulator": {
+      const out: TrustRoot = {
+        root: "known-accumulator",
+        accumulator: resolveBytes(input.accumulator, "trust.accumulator"),
+      };
+      if (input.massif !== undefined) {
+        out.massif = resolveBytes(input.massif, "trust.massif");
+      }
+      if (input.consistencyProof !== undefined) {
+        out.consistencyProof = resolveBytes(
+          input.consistencyProof,
+          "trust.consistencyProof",
+        );
+      }
+      return out;
+    }
+    case "checkpoint-chain": {
+      if (input.checkpoints.length === 0) {
+        throw new InputError("trust.checkpoints must not be empty");
+      }
+      const out: TrustRoot = {
+        root: "checkpoint-chain",
+        checkpoints: input.checkpoints.map((c, i) =>
+          resolveBytes(c, `trust.checkpoints[${i}]`),
+        ),
+      };
+      if (input.genesis !== undefined) {
+        out.genesis = resolveBytes(input.genesis, "trust.genesis");
+      }
+      if (input.keyXy !== undefined) {
+        out.keyXy = resolveBytes(input.keyXy, "trust.keyXy");
+      }
+      if (out.genesis === undefined && out.keyXy === undefined) {
+        throw new InputError(
+          "the checkpoint-chain root needs a trust root: supply trust.genesis or trust.keyXy",
+        );
+      }
+      return out;
+    }
+  }
+}
+
+type VerifyFetchedArgs = FlatReceiptFields & {
+  trust: TrustInput;
+  payload?: BytesInput | undefined;
+  grant?: boolean | undefined;
+};
+
+function rpcUrlFromProvenance(p: Provenance): string | undefined {
+  return typeof p.from === "object" ? p.from.rpcUrl : undefined;
+}
+
+async function handleVerifyFetchedReceipt(
+  args: VerifyFetchedArgs,
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const locator = resolveReceiptLocator(args, deps);
+  if (!locator.ok)
+    return problemResult("verify_fetched_receipt", locator.problem);
+
+  const fetchedReceipt = await fetchAndClassifyReceipt(locator.value, deps);
+  if (fetchedReceipt.kind === "problem") {
+    return problemResult("verify_fetched_receipt", fetchedReceipt.problem);
+  }
+  const receiptProvenance = fetchedProvenance(
+    fetchedReceipt.url,
+    fetchedReceipt.at,
+  );
+
+  let trust: TrustRoot;
+  let rootProvenance: "supplied" | "chain-read";
+  let rootProvenanceValue: Provenance;
+
+  if (args.trust.root === "known-accumulator" && "chain" in args.trust) {
+    const resolvedChain = resolveChainInput(args.trust.chain, deps);
+    if (!resolvedChain.ok) {
+      return problemResult("verify_fetched_receipt", resolvedChain.problem);
+    }
+    const { rpcUrl, univocity, logId, expectedChainId, binding } =
+      resolvedChain.value;
+    const snapshot = await fetchAccumulatorSnapshot(
+      {
+        rpcUrl,
+        univocity,
+        logId,
+        ...(expectedChainId !== undefined ? { expectedChainId } : {}),
+      },
+      { fetchImpl: deps.fetchImpl },
+    );
+    if (snapshot.kind === "problem") {
+      return problemResult("verify_fetched_receipt", { ...snapshot.problem });
+    }
+    trust = { root: "known-accumulator", accumulator: snapshot.snapshot };
+    rootProvenance = "chain-read";
+    rootProvenanceValue = chainReadProvenance(
+      rpcUrl,
+      snapshot.univocity,
+      snapshot.chainId,
+      snapshot.at,
+      binding,
+    );
+  } else {
+    trust = resolveSuppliedRoot(args.trust);
+    rootProvenance = "supplied";
+    rootProvenanceValue = suppliedProvenance(deps.now().toISOString());
+  }
+
+  const kind: "payload" | "grant" = args.grant === true ? "grant" : "payload";
+  let result: FetchedVerifyResult;
+
+  if (kind === "payload") {
+    if (args.payload === undefined || args.entryId === undefined) {
+      return problemResult("verify_fetched_receipt", {
+        code: "missing_input",
+        message:
+          "payload and entryId are required to verify a payload receipt (set grant:true to verify a grant receipt instead)",
+      });
+    }
+    const payloadBytes = resolveBytes(args.payload, "payload");
+    result = await verifyFetched({
+      kind: "payload",
+      receipt: fetchedReceipt.bytes,
+      payload: payloadBytes,
+      entryId: args.entryId,
+      trust,
+      rootProvenance,
+    });
+  } else {
+    if (args.payload === undefined) {
+      return problemResult("verify_fetched_receipt", {
+        code: "missing_input",
+        message:
+          "payload is required (the committed grant bytes) to verify a grant receipt",
+      });
+    }
+    const committedGrant = resolveBytes(args.payload, "committedGrant");
+    result = await verifyFetched({
+      kind: "grant",
+      receipt: fetchedReceipt.bytes,
+      committedGrant,
+      ...(args.entryId !== undefined ? { entryId: args.entryId } : {}),
+      trust,
+      rootProvenance,
+    });
+  }
+
+  const provenance = { receipt: receiptProvenance, root: rootProvenanceValue };
+  const rpcUrl = rpcUrlFromProvenance(rootProvenanceValue);
+  const provenanceLine =
+    `receipt: fetched from ${fetchedReceipt.url} at ${fetchedReceipt.at}` +
+    (rpcUrl !== undefined
+      ? `; root: read from the chain at ${rpcUrl}`
+      : "; root: supplied by caller");
+
+  const verb = kind === "grant" ? "verify-grant" : "verify";
+  const text = summarizeFetched(verb, result, provenanceLine);
+
+  return ok(text, {
+    ...result,
+    provenance,
+    supports: SUPPORTS.verify_fetched_receipt,
+  });
+}
+
+/* -------------------------------- exports --------------------------------- */
+
+/**
+ * One factory per N2 tool: closes over `deps` and returns the
+ * `registerTool` callback, wrapped in `guardHandler` so every escape is a
+ * `structuredContent.problem` rather than a thrown MCP tool error (except
+ * a genuine programming error, which `guardHandler` re-throws). `server.ts`
+ * pairs each of these with its input/output raw shape above and the
+ * shared N5 annotations object.
+ */
+export function makeFetchScittConfigurationTool(deps: ResolvedDeps) {
+  return (args: { baseUrl?: string | undefined }) =>
+    guardHandler("fetch_scitt_configuration", () =>
+      handleFetchScittConfiguration(args, deps),
+    );
+}
+
+export function makeQueryRegistrationTool(deps: ResolvedDeps) {
+  return (args: {
+    baseUrl?: string | undefined;
+    bootstrapLogId: string;
+    logId: string;
+    contentHash: string;
+  }) =>
+    guardHandler("query_registration", () =>
+      handleQueryRegistration(args, deps),
+    );
+}
+
+export function makeFetchReceiptTool(deps: ResolvedDeps) {
+  return (args: FlatReceiptFields) =>
+    guardHandler("fetch_receipt", () => handleFetchReceipt(args, deps));
+}
+
+export function makeFetchGenesisTool(deps: ResolvedDeps) {
+  return (args: { baseUrl?: string | undefined; logId: string }) =>
+    guardHandler("fetch_genesis", () => handleFetchGenesis(args, deps));
+}
+
+export function makeFetchAccumulatorTool(deps: ResolvedDeps) {
+  return (args: { chain: ChainInput }) =>
+    guardHandler("fetch_accumulator", () =>
+      handleFetchAccumulator(args, deps),
+    );
+}
+
+export function makeVerifyFetchedReceiptTool(deps: ResolvedDeps) {
+  return (args: VerifyFetchedArgs) =>
+    guardHandler("verify_fetched_receipt", () =>
+      handleVerifyFetchedReceipt(args, deps),
+    );
+}
