@@ -13,6 +13,7 @@ import {
   type TrustRoot,
   type VerifyResult,
 } from "@forestrie/mcp-verify";
+import { entryIdHexToIdtimestampBe8 } from "@forestrie/receipt-verify";
 import { COURIER } from "./version.js";
 import type { CourierDiagnostic, FetchedVerifyResult } from "./result.js";
 
@@ -132,35 +133,58 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+/** SHA-256 of the exact registered payload — the leaf's inner ContentHash
+ *  for a payload receipt, exactly the value `@forestrie/mcp-verify`'s own
+ *  `verifyReceipt` computes before calling `recomputeReceiptPeak` (its
+ *  `innerHash`, not exported, is this same WebCrypto digest — no
+ *  verification arithmetic is reimplemented here, only the platform's own
+ *  hash primitive, same as every other leaf-input caller). */
+async function payloadInnerHash(payload: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new Uint8Array(payload)),
+  );
+}
+
 /**
- * `fetch_accumulator`'s `forReceipt` check: is this receipt's MMR peak one
- * of `accumulator`'s peaks? Uses the verifier's own `recomputeReceiptPeak`
- * — no hashing of our own (AGENTS.md: no verification arithmetic of its
- * own).
+ * `fetch_accumulator`'s `forReceipt` check (plan-2609-06 F1, amended
+ * 2026-09-14): recompute the receipt's MMR peak from its real leaf inputs
+ * — `entryId` (`@forestrie/receipt-verify`'s `entryIdHexToIdtimestampBe8`)
+ * and the exact registered payload (`payloadInnerHash` above) — via the
+ * verifier's own `recomputeReceiptPeak`. No verification arithmetic of its
+ * own: the peak recompute and the leaf-input derivation are both the
+ * verifier stack's, never reimplemented here.
  *
- * A caveat this package's `forReceipt` input cannot avoid: `fetch_accumulator`
- * carries no `payload`/`entryId` (unlike `verify_fetched_receipt`), so an
- * ATTACHED-payload receipt (its COSE Sign1 payload is the peak itself,
- * `recomputeReceiptPeak`'s `explicitPeak` branch) is checked correctly, but
- * a DETACHED-payload receipt — whose peak can only be recomputed from the
- * leaf (`idtimestamp` + the registered payload's content hash) — cannot be,
- * since neither is available here. The zero-filled placeholders below are
- * inert in the explicit-peak branch and, for a detached receipt, yield a
- * peak that (harmlessly) will not match any real checkpoint: `held` comes
- * back `false` and the caller falls through to the history scan, which may
- * then report `history_scan_exhausted` for a peak that a payload-aware
- * caller (`verify_fetched_receipt`) could in fact have found. Never a false
- * "held".
+ * Grant receipts are NOT supported here: `@forestrie/mcp-verify`'s core
+ * keeps its COSE-vs-raw-grant decode dispatch (`decodeCommittedGrant` in
+ * `verify-grant-receipt.ts`) private, so there is no exported way to derive
+ * a grant leaf's `inner` without reimplementing that dispatch. Callers
+ * asking for `forReceipt` with a grant receipt get `problem {
+ * code: "unsupported_input" }` in `src/node/tools.ts` before this is ever
+ * called — a finding for a later plan, not silently worked around.
  */
-export async function receiptPeakHeld(
-  receipt: Uint8Array,
-  accumulator: Uint8Array[],
-): Promise<boolean> {
+export async function recomputePeakForReceipt(input: {
+  receipt: Uint8Array;
+  payload: Uint8Array;
+  entryId: string;
+}): Promise<Uint8Array> {
+  const idtimestampBe8 = entryIdHexToIdtimestampBe8(input.entryId);
+  const inner = await payloadInnerHash(input.payload);
   const { peak } = await recomputeReceiptPeak({
-    receiptCbor: receipt,
-    idtimestampBe8: new Uint8Array(8),
-    inner: new Uint8Array(32),
+    receiptCbor: input.receipt,
+    idtimestampBe8,
+    inner,
   });
+  return peak;
+}
+
+/** Is `peak` one of `accumulator`'s peaks? Pure byte comparison — F1's
+ *  "compare the recomputed peak to every peak", over a peak recomputed
+ *  once by `recomputePeakForReceipt` and compared against as many
+ *  candidate accumulators as the history scan needs. */
+export function peakHeldIn(
+  peak: Uint8Array,
+  accumulator: Uint8Array[],
+): boolean {
   return accumulator.some((p) => bytesEqual(p, peak));
 }
 

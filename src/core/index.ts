@@ -77,7 +77,8 @@ export {
   verifyFetched,
   summarizeFetched,
   isPeakNotInKnownAccumulator,
-  receiptPeakHeld,
+  recomputePeakForReceipt,
+  peakHeldIn,
 } from "./compose.js";
 export type { VerifyFetchedInput } from "./compose.js";
 

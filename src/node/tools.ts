@@ -28,7 +28,8 @@ import {
   classify,
   decodeChainBindingFromGenesis,
   isPeakNotInKnownAccumulator,
-  receiptPeakHeld,
+  peakHeldIn,
+  recomputePeakForReceipt,
   selectCheckpoint,
   summarizeFetched,
   toKnownAccumulator,
@@ -50,7 +51,10 @@ import {
   toClassifyView,
   type FetchReceiptInput,
 } from "../net/index.js";
-import { HISTORY_INPUT_DESCRIPTION } from "./text.js";
+import {
+  FOR_RECEIPT_INPUT_DESCRIPTION,
+  HISTORY_INPUT_DESCRIPTION,
+} from "./text.js";
 import { InputError, resolveBytes, type BytesInput } from "./resolve-input.js";
 
 /** The resolved form of `server.ts`'s `Deps`: every field defaulted. */
@@ -100,9 +104,10 @@ const AddressSchema = z
   .min(1)
   .describe("0x-prefixed or bare 40-hex address");
 
-/** F2/1.5.4: bounds for the backward `CheckpointPublished` scan. Shared by
- *  `fetch_accumulator`'s top-level `history` and the chain union's own
- *  `chain.history` (`verify_fetched_receipt`). */
+/** F2/1.5.4: bounds for the backward `CheckpointPublished` scan. Lives
+ *  ONLY on the chain union — `chain.history` for both `fetch_accumulator`
+ *  and `verify_fetched_receipt`'s `trust.chain` — never a top-level
+ *  `history` on either tool. */
 const HistoryInputSchema = z
   .object({
     fromBlock: z.number().int().nonnegative().optional(),
@@ -111,13 +116,38 @@ const HistoryInputSchema = z
   })
   .describe(HISTORY_INPUT_DESCRIPTION);
 
+/** `fetch_accumulator.forReceipt` (1.5.10, added 2026-09-14): the leaf
+ *  inputs the verifier needs to recompute a receipt's peak — the same
+ *  meaning as `verify_fetched_receipt`'s `payload`/`entryId`/`grant`, just
+ *  nested under one object since `fetch_accumulator` has no other use for
+ *  them. `grant: true` is accepted at the schema level (the wire shape
+ *  matches `verify_fetched_receipt`) but refused at the handler
+ *  (`unsupported_input`) — see `src/core/compose.ts`'s
+ *  `recomputePeakForReceipt`. */
+const ForReceiptInputSchema = z
+  .object({
+    receipt: BytesInputSchema.describe("the receipt bytes"),
+    payload: BytesInputSchema.optional().describe(
+      "the exact registered payload (payload verification), or the committed grant bytes when grant:true",
+    ),
+    entryId: EntryIdSchema.optional().describe(
+      "required for payload verification; optional for a COSE grant, required for a raw grant payload",
+    ),
+    grant: z
+      .boolean()
+      .optional()
+      .describe(
+        "true if payload is the committed grant bytes rather than the registered payload",
+      ),
+  })
+  .describe(FOR_RECEIPT_INPUT_DESCRIPTION);
+
 /** N2 amendment A: the chain binding comes from a genesis you hold, or is
  *  given explicitly. There is no third form, and `rpcUrl` is the only
  *  field this package will ever read from the environment. `history`
- *  (plan-2609-06 F2) is read only via `verify_fetched_receipt`'s
- *  `trust.chain.history` — the chain union is reused for
- *  `fetch_accumulator`'s `chain` too, where its own top-level `history`
- *  input is what's read instead. */
+ *  (plan-2609-06 F2) lives on this union alone, so both `fetch_accumulator`
+ *  (`chain.history`) and `verify_fetched_receipt` (`trust.chain.history`)
+ *  read it from the same place. */
 const ChainInputSchema = z
   .union([
     z.object({
@@ -305,10 +335,7 @@ export const fetchGenesisOutputShape = {
 
 export const fetchAccumulatorInputShape = {
   chain: ChainInputSchema,
-  forReceipt: BytesInputSchema.optional().describe(
-    "the receipt bytes, base64; if given, the tool checks whether its peak is held before returning the latest state — see history",
-  ),
-  history: HistoryInputSchema.optional(),
+  forReceipt: ForReceiptInputSchema.optional(),
 };
 export const fetchAccumulatorOutputShape = {
   snapshot: BytesSummarySchema.optional(),
@@ -649,6 +676,15 @@ type ChainInput =
       history?: HistoryInput | undefined;
     };
 
+/** `fetch_accumulator.forReceipt` (1.5.10): the leaf inputs the verifier
+ *  needs to recompute a receipt's peak. */
+type ForReceiptInput = {
+  receipt: BytesInput;
+  payload?: BytesInput | undefined;
+  entryId?: string | undefined;
+  grant?: boolean | undefined;
+};
+
 type ResolvedChain = {
   rpcUrl: string;
   univocity: string;
@@ -943,8 +979,7 @@ function accumulatorStructured(
 async function handleFetchAccumulator(
   args: {
     chain: ChainInput;
-    forReceipt?: BytesInput | undefined;
-    history?: HistoryInput | undefined;
+    forReceipt?: ForReceiptInput | undefined;
   },
   deps: ResolvedDeps,
 ): Promise<ToolResult> {
@@ -953,6 +988,45 @@ async function handleFetchAccumulator(
     return problemResult("fetch_accumulator", resolved.problem);
   const { rpcUrl, univocity, logId, expectedChainId, binding } =
     resolved.value;
+
+  // forReceipt's leaf inputs are validated before any JSON-RPC call
+  // (F1/1.5.10): grant receipts are unsupported here (no exported way to
+  // derive the grant leaf without reimplementing the verifier's private
+  // COSE-vs-raw-grant dispatch — see recomputePeakForReceipt), and a
+  // payload receipt needs both payload and entryId to recompute its peak.
+  let leafInput:
+    | { receiptBytes: Uint8Array; payloadBytes: Uint8Array; entryId: string }
+    | undefined;
+  if (args.forReceipt !== undefined) {
+    if (args.forReceipt.grant === true) {
+      return problemResult("fetch_accumulator", {
+        code: "unsupported_input",
+        message:
+          "forReceipt with grant true is not supported by this version; verify_fetched_receipt handles grant receipts",
+      });
+    }
+    if (
+      args.forReceipt.payload === undefined ||
+      args.forReceipt.entryId === undefined
+    ) {
+      return problemResult("fetch_accumulator", {
+        code: "missing_input",
+        message:
+          "forReceipt needs payload and entryId (or grant true with the committed grant bytes) to recompute the receipt's peak",
+      });
+    }
+    leafInput = {
+      receiptBytes: resolveBytes(
+        args.forReceipt.receipt,
+        "forReceipt.receipt",
+      ),
+      payloadBytes: resolveBytes(
+        args.forReceipt.payload,
+        "forReceipt.payload",
+      ),
+      entryId: args.forReceipt.entryId,
+    };
+  }
 
   const result = await fetchAccumulatorSnapshot(
     {
@@ -976,18 +1050,20 @@ async function handleFetchAccumulator(
   );
 
   // Without forReceipt: unchanged (F1).
-  if (args.forReceipt === undefined) {
+  if (leafInput === undefined) {
     return ok(
       `read accumulator (size ${result.size}) from ${result.univocity} on chain ${result.chainId} at block ${result.blockNumber}`,
       accumulatorStructured(result, logId, result.snapshot, provenance),
     );
   }
 
-  const receiptBytes = resolveBytes(args.forReceipt, "forReceipt");
-
-  let held: boolean;
+  let peak: Uint8Array;
   try {
-    held = await receiptPeakHeld(receiptBytes, result.accumulator);
+    peak = await recomputePeakForReceipt({
+      receipt: leafInput.receiptBytes,
+      payload: leafInput.payloadBytes,
+      entryId: leafInput.entryId,
+    });
   } catch (err) {
     return problemResult("fetch_accumulator", {
       code: "receipt_malformed",
@@ -995,7 +1071,7 @@ async function handleFetchAccumulator(
     });
   }
 
-  if (held) {
+  if (peakHeldIn(peak, result.accumulator)) {
     return ok(
       `read accumulator (size ${result.size}) from ${result.univocity} on chain ${result.chainId} at block ${result.blockNumber}: holds the receipt's peak`,
       accumulatorStructured(result, logId, result.snapshot, provenance),
@@ -1010,16 +1086,12 @@ async function handleFetchAccumulator(
       univocity: result.univocity,
       logId,
       latestBlock: result.blockNumber,
-      ...historyBounds(args.history),
+      ...historyBounds(args.chain.history),
     },
     (checkpoints) =>
-      selectCheckpoint(checkpoints, async (cp) => {
-        try {
-          return await receiptPeakHeld(receiptBytes, cp.accumulator);
-        } catch {
-          return false;
-        }
-      }),
+      selectCheckpoint(checkpoints, async (cp) =>
+        peakHeldIn(peak, cp.accumulator),
+      ),
     { fetchImpl: deps.fetchImpl },
   );
 
@@ -1443,8 +1515,7 @@ export function makeFetchGenesisTool(deps: ResolvedDeps) {
 export function makeFetchAccumulatorTool(deps: ResolvedDeps) {
   return (args: {
     chain: ChainInput;
-    forReceipt?: BytesInput | undefined;
-    history?: HistoryInput | undefined;
+    forReceipt?: ForReceiptInput | undefined;
   }) =>
     guardHandler("fetch_accumulator", () =>
       handleFetchAccumulator(args, deps),

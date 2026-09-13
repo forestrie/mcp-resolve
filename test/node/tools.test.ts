@@ -107,6 +107,12 @@ const LOG_KEY_PATH = path.join(VERIFY_FIXTURES_DIR, "log-key.xy.b64");
 const BUNDLED_RECEIPT_PATH = path.join(VERIFY_FIXTURES_DIR, "receipt.cbor");
 const LANE_A_GENESIS_PATH = path.join(LANE_A_DIR, "genesis.cbor");
 const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
+/** The synthetic buried-peak fixture's fabricated "latest" `logState`
+ *  (size 15, block 46795144) — plan-2609-06 F1/F2. */
+const SYNTHETIC_LOGSTATE_PATH = path.join(
+  SYNTHETIC_HISTORY_DIR,
+  "logState.46795144.json",
+);
 
 function requestUrl(input: string | URL | Request): string {
   if (typeof input === "string") return input;
@@ -142,6 +148,26 @@ function combineFetchWithHistory(
     init?: Parameters<typeof fetch>[1],
   ): Promise<Response> => {
     if (requestUrl(input) !== RPC_URL) return laneA.fetch(input, init);
+    const bodyText =
+      typeof init?.body === "string" ? init.body : String(init?.body ?? "");
+    const method = (JSON.parse(bodyText) as { method?: unknown }).method;
+    return method === "eth_getLogs"
+      ? history.fetch(input, init)
+      : chain.fetch(input, init);
+  }) as unknown as typeof fetch;
+}
+
+/** `fetch_accumulator`'s buried-peak fallback makes only RPC-URL calls (no
+ *  lane-A HTTP) — routed between a `ChainReplay` (the `logState` read) and
+ *  a `ChainHistoryReplay` (the `eth_getLogs` scan) by JSON-RPC method. */
+function combineChainAndHistory(
+  chain: ChainReplay,
+  history: ChainHistoryReplay,
+): typeof fetch {
+  return (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ): Promise<Response> => {
     const bodyText =
       typeof init?.body === "string" ? init.body : String(init?.body ?? "");
     const method = (JSON.parse(bodyText) as { method?: unknown }).method;
@@ -738,6 +764,131 @@ describe("fetch_accumulator", () => {
     expect(structured.accumulator.size).toBe(11);
     expect(chain.calls).toHaveLength(3);
   });
+
+  /* -------- plan-2609-06 F1/F2: the buried-peak history fallback -------- */
+
+  it("forReceipt: the synthetic latest state doesn't hold the peak, the scan finds the real size-11 checkpoint, provenance.history, 4 history requests", async () => {
+    const chain = await createChainReplay(undefined, SYNTHETIC_LOGSTATE_PATH);
+    const history = await createChainHistoryReplay();
+    const result = await withClient(
+      { fetchImpl: combineChainAndHistory(chain, history), env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_accumulator",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+            forReceipt: {
+              receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              entryId: ENTRY_ID,
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      accumulator: { size: number; blockNumber: number };
+      provenance: Provenance;
+      supports: Supports;
+    };
+    expect(structured.accumulator.size).toBe(11);
+    expect(structured.accumulator.blockNumber).toBe(46764680);
+    expect(structured.provenance.history).toMatchObject({
+      blockNumber: 46764680,
+      size: 11,
+      requests: 4,
+    });
+    expect(structured.supports).toEqual(SUPPORTS.fetch_accumulator);
+
+    expect(chain.calls).toHaveLength(3); // the initial logState read
+    expect(history.calls).toHaveLength(4); // the buried-peak scan (F2)
+  });
+
+  it("forReceipt without payload/entryId is missing_input before any JSON-RPC call, zero requests", async () => {
+    const calls: string[] = [];
+    const countingFetch = (async (
+      input: Parameters<typeof fetch>[0],
+    ): Promise<Response> => {
+      calls.push(requestUrl(input));
+      throw new Error("no request should have been made");
+    }) as unknown as typeof fetch;
+
+    const result = await withClient(
+      { fetchImpl: countingFetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_accumulator",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+            forReceipt: {
+              receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("missing_input");
+    expect(structured.problem.message).toBe(
+      "forReceipt needs payload and entryId (or grant true with the committed grant bytes) to recompute the receipt's peak",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("forReceipt with grant:true is unsupported_input, zero requests", async () => {
+    const calls: string[] = [];
+    const countingFetch = (async (
+      input: Parameters<typeof fetch>[0],
+    ): Promise<Response> => {
+      calls.push(requestUrl(input));
+      throw new Error("no request should have been made");
+    }) as unknown as typeof fetch;
+
+    const result = await withClient(
+      { fetchImpl: countingFetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_accumulator",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+            forReceipt: {
+              receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              grant: true,
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("unsupported_input");
+    expect(structured.problem.message).toBe(
+      "forReceipt with grant true is not supported by this version; verify_fetched_receipt handles grant receipts",
+    );
+    expect(calls).toHaveLength(0);
+  });
 });
 
 /* ----------------------------- verify_fetched_receipt ---------------------- */
@@ -937,11 +1088,6 @@ describe("verify_fetched_receipt", () => {
 
   /* -------- plan-2609-06 F1/F2: the buried-peak history fallback -------- */
 
-  const SYNTHETIC_LOGSTATE_PATH = path.join(
-    SYNTHETIC_HISTORY_DIR,
-    "logState.46795144.json",
-  );
-
   it("known-accumulator, chain history fallback: the synthetic latest state doesn't hold the peak, the scan finds the real size-11 checkpoint, split-view ok, both chain diagnostics, 4 history requests, anchor at block 46764680", async () => {
     const laneA = await createLaneAReplay();
     const chain = await createChainReplay(undefined, SYNTHETIC_LOGSTATE_PATH);
@@ -1000,6 +1146,10 @@ describe("verify_fetched_receipt", () => {
       size: 11,
       requests: 4,
     });
+    // F2: provenance.source is "chain-read" even when the accumulator came
+    // from history — "chain-read-history" is an internal rootProvenance
+    // label only, never emitted in structuredContent.
+    expect(structured.provenance.root.source).toBe("chain-read");
 
     expect(laneA.calls).toHaveLength(1);
     expect(chain.calls).toHaveLength(3); // the initial logState read
