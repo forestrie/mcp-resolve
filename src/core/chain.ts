@@ -18,11 +18,17 @@ export class ChainError extends Error {
   }
 }
 
-function stripHexPrefix(hex: string): string {
+/** Strip a leading `0x`/`0X`. Exported so `history.ts`'s
+ *  `CheckpointPublished` event-data decode — the same word-offset ABI
+ *  shape as `decodeLogStateResult` below — shares this instead of a second
+ *  copy (AGENTS.md: no duplicated hex utilities). */
+export function stripHexPrefix(hex: string): string {
   return hex.startsWith("0x") || hex.startsWith("0X") ? hex.slice(2) : hex;
 }
 
-function hexToBytesRaw(hex: string): Uint8Array {
+/** Bare (no `0x`) hex -> bytes. Exported for the same reason as
+ *  `stripHexPrefix`. */
+export function hexToBytesRaw(hex: string): Uint8Array {
   const clean = hex.length % 2 === 0 ? hex : `0${hex}`;
   const out = new Uint8Array(clean.length / 2);
   for (let i = 0; i < out.length; i++) {
@@ -58,17 +64,22 @@ export function hexToBytes32(hex: string): Uint8Array {
   return hexToBytesRaw(clean.padStart(64, "0"));
 }
 
-const WORD_BYTES = 32;
+export const WORD_BYTES = 32;
 
-/** Read one 32-byte word at `byteOffset`, throwing on truncation. */
-function readBytes32(bytes: Uint8Array, byteOffset: number): Uint8Array {
+/** Read one 32-byte word at `byteOffset`, throwing on truncation. Exported
+ *  for `history.ts`'s `CheckpointPublished` decode (see `stripHexPrefix`). */
+export function readBytes32(
+  bytes: Uint8Array,
+  byteOffset: number,
+): Uint8Array {
   if (byteOffset < 0 || byteOffset + WORD_BYTES > bytes.length) {
-    throw new ChainError("truncated eth_call result");
+    throw new ChainError("truncated ABI-encoded data");
   }
   return bytes.slice(byteOffset, byteOffset + WORD_BYTES);
 }
 
-function readWord(bytes: Uint8Array, byteOffset: number): bigint {
+/** Exported for the same reason as `readBytes32`. */
+export function readWord(bytes: Uint8Array, byteOffset: number): bigint {
   return bytesToBigint(readBytes32(bytes, byteOffset));
 }
 

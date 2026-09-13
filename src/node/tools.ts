@@ -27,11 +27,17 @@ import {
   SUPPORTS,
   classify,
   decodeChainBindingFromGenesis,
+  isPeakNotInKnownAccumulator,
+  peakHeldIn,
+  recomputePeakForReceipt,
+  selectCheckpoint,
   summarizeFetched,
+  toKnownAccumulator,
   verifyFetched,
   type ChainBinding,
   type FetchedVerifyResult,
   type Provenance,
+  type PublishedCheckpoint,
   type ToolName,
 } from "../core/index.js";
 import {
@@ -41,9 +47,14 @@ import {
   fetchReceipt,
   fetchScittConfiguration,
   queryRegistration,
+  scanCheckpointHistory,
   toClassifyView,
   type FetchReceiptInput,
 } from "../net/index.js";
+import {
+  FOR_RECEIPT_INPUT_DESCRIPTION,
+  HISTORY_INPUT_DESCRIPTION,
+} from "./text.js";
 import { InputError, resolveBytes, type BytesInput } from "./resolve-input.js";
 
 /** The resolved form of `server.ts`'s `Deps`: every field defaulted. */
@@ -93,9 +104,50 @@ const AddressSchema = z
   .min(1)
   .describe("0x-prefixed or bare 40-hex address");
 
+/** F2/1.5.4: bounds for the backward `CheckpointPublished` scan. Lives
+ *  ONLY on the chain union — `chain.history` for both `fetch_accumulator`
+ *  and `verify_fetched_receipt`'s `trust.chain` — never a top-level
+ *  `history` on either tool. */
+const HistoryInputSchema = z
+  .object({
+    fromBlock: z.number().int().nonnegative().optional(),
+    maxBlocks: z.number().int().positive().optional(),
+    chunkBlocks: z.number().int().positive().optional(),
+  })
+  .describe(HISTORY_INPUT_DESCRIPTION);
+
+/** `fetch_accumulator.forReceipt` (1.5.10, added 2026-09-14): the leaf
+ *  inputs the verifier needs to recompute a receipt's peak — the same
+ *  meaning as `verify_fetched_receipt`'s `payload`/`entryId`/`grant`, just
+ *  nested under one object since `fetch_accumulator` has no other use for
+ *  them. `grant: true` is accepted at the schema level (the wire shape
+ *  matches `verify_fetched_receipt`) but refused at the handler
+ *  (`unsupported_input`) — see `src/core/compose.ts`'s
+ *  `recomputePeakForReceipt`. */
+const ForReceiptInputSchema = z
+  .object({
+    receipt: BytesInputSchema.describe("the receipt bytes"),
+    payload: BytesInputSchema.optional().describe(
+      "the exact registered payload (payload verification), or the committed grant bytes when grant:true",
+    ),
+    entryId: EntryIdSchema.optional().describe(
+      "required for payload verification; optional for a COSE grant, required for a raw grant payload",
+    ),
+    grant: z
+      .boolean()
+      .optional()
+      .describe(
+        "true if payload is the committed grant bytes rather than the registered payload",
+      ),
+  })
+  .describe(FOR_RECEIPT_INPUT_DESCRIPTION);
+
 /** N2 amendment A: the chain binding comes from a genesis you hold, or is
  *  given explicitly. There is no third form, and `rpcUrl` is the only
- *  field this package will ever read from the environment. */
+ *  field this package will ever read from the environment. `history`
+ *  (plan-2609-06 F2) lives on this union alone, so both `fetch_accumulator`
+ *  (`chain.history`) and `verify_fetched_receipt` (`trust.chain.history`)
+ *  read it from the same place. */
 const ChainInputSchema = z
   .union([
     z.object({
@@ -104,6 +156,7 @@ const ChainInputSchema = z
       ),
       rpcUrl: RpcUrlSchema.optional(),
       logId: LogIdSchema,
+      history: HistoryInputSchema.optional(),
     }),
     z.object({
       rpcUrl: RpcUrlSchema.optional(),
@@ -114,6 +167,7 @@ const ChainInputSchema = z
         .int()
         .optional()
         .describe("checked against eth_chainId before any eth_call, if given"),
+      history: HistoryInputSchema.optional(),
     }),
   ])
   .describe(
@@ -178,6 +232,17 @@ const TrustInputSchema = z
 
 /* ------------------------------ output shapes ------------------------------ */
 
+/** F1/F2: present only when the accumulator came from a checkpoint
+ *  selected out of published history rather than the latest `logState`. */
+const HistoryProvenanceSchema = z.object({
+  blockNumber: z.number(),
+  blockHash: z.string(),
+  size: z.number(),
+  scannedFrom: z.number(),
+  scannedTo: z.number(),
+  requests: z.number(),
+});
+
 const ProvenanceSchema = z.looseObject({
   source: z.enum(["fetched", "chain-read", "supplied"]),
   from: z.union([
@@ -190,6 +255,7 @@ const ProvenanceSchema = z.looseObject({
   ]),
   at: z.string(),
   binding: z.enum(["held-genesis", "explicit"]).optional(),
+  history: HistoryProvenanceSchema.optional(),
 });
 
 const SupportsSchema = z.looseObject({
@@ -269,6 +335,7 @@ export const fetchGenesisOutputShape = {
 
 export const fetchAccumulatorInputShape = {
   chain: ChainInputSchema,
+  forReceipt: ForReceiptInputSchema.optional(),
 };
 export const fetchAccumulatorOutputShape = {
   snapshot: BytesSummarySchema.optional(),
@@ -284,6 +351,10 @@ export const fetchAccumulatorOutputShape = {
     })
     .optional(),
   provenance: ProvenanceSchema.optional(),
+  /** Present only on `problem.code === "history_scan_exhausted"`: the
+   *  latest state's own size/block, so the caller sees what forReceipt
+   *  was compared against. */
+  latest: z.object({ size: z.number(), blockNumber: z.number() }).optional(),
   supports: SupportsSchema,
   problem: ProblemSchema.optional(),
 };
@@ -318,6 +389,10 @@ export const verifyFetchedReceiptOutputShape = {
   provenance: z
     .object({ receipt: ProvenanceSchema, root: ProvenanceSchema })
     .optional(),
+  /** Present only on `problem.code === "history_scan_exhausted"`: the
+   *  verifier's result under the latest chain state, so the caller sees
+   *  what the history scan was trying to improve on. */
+  latest: z.unknown().optional(),
   supports: SupportsSchema,
   problem: ProblemSchema.optional(),
 };
@@ -579,14 +654,36 @@ async function fetchAndClassifyReceipt(
 
 /* ----------------------------- chain input -------------------------------- */
 
+/** F2: `history` bounds for the backward `CheckpointPublished` scan. */
+type HistoryInput = {
+  fromBlock?: number | undefined;
+  maxBlocks?: number | undefined;
+  chunkBlocks?: number | undefined;
+};
+
 type ChainInput =
-  | { genesis: BytesInput; rpcUrl?: string | undefined; logId: string }
+  | {
+      genesis: BytesInput;
+      rpcUrl?: string | undefined;
+      logId: string;
+      history?: HistoryInput | undefined;
+    }
   | {
       rpcUrl?: string | undefined;
       univocity: string;
       logId: string;
       chainId?: number | undefined;
+      history?: HistoryInput | undefined;
     };
+
+/** `fetch_accumulator.forReceipt` (1.5.10): the leaf inputs the verifier
+ *  needs to recompute a receipt's peak. */
+type ForReceiptInput = {
+  receipt: BytesInput;
+  payload?: BytesInput | undefined;
+  entryId?: string | undefined;
+  grant?: boolean | undefined;
+};
 
 type ResolvedChain = {
   rpcUrl: string;
@@ -636,6 +733,27 @@ function resolveChainInput(
       expectedChainId: input.chainId,
       binding: "explicit",
     },
+  };
+}
+
+/** `HistoryInput`'s wire numbers -> the bigint bounds `scanCheckpointHistory`
+ *  takes, respecting `exactOptionalPropertyTypes` (an explicit `undefined`
+ *  is not the same as an absent key). */
+function historyBounds(input: HistoryInput | undefined): {
+  fromBlock?: bigint;
+  maxBlocks?: bigint;
+  chunkBlocks?: bigint;
+} {
+  return {
+    ...(input?.fromBlock !== undefined
+      ? { fromBlock: BigInt(input.fromBlock) }
+      : {}),
+    ...(input?.maxBlocks !== undefined
+      ? { maxBlocks: BigInt(input.maxBlocks) }
+      : {}),
+    ...(input?.chunkBlocks !== undefined
+      ? { chunkBlocks: BigInt(input.chunkBlocks) }
+      : {}),
   };
 }
 
@@ -827,8 +945,42 @@ async function handleFetchGenesis(
   );
 }
 
+function accumulatorStructured(
+  result: {
+    size: bigint;
+    accumulator: Uint8Array[];
+    blockNumber: bigint;
+    blockHash: string;
+    chainId: number;
+    univocity: string;
+  },
+  logId: string,
+  snapshot: Uint8Array,
+  provenance: Provenance,
+): Record<string, unknown> {
+  return {
+    snapshot: bytesSummary(snapshot),
+    accumulator: {
+      size: Number(result.size),
+      peaks: result.accumulator.map(
+        (p) => `0x${Buffer.from(p).toString("hex")}`,
+      ),
+      blockNumber: Number(result.blockNumber),
+      blockHash: result.blockHash,
+      chainId: result.chainId,
+      univocity: result.univocity,
+      logId,
+    },
+    provenance,
+    supports: SUPPORTS.fetch_accumulator,
+  };
+}
+
 async function handleFetchAccumulator(
-  args: { chain: ChainInput },
+  args: {
+    chain: ChainInput;
+    forReceipt?: ForReceiptInput | undefined;
+  },
   deps: ResolvedDeps,
 ): Promise<ToolResult> {
   const resolved = resolveChainInput(args.chain, deps);
@@ -836,6 +988,45 @@ async function handleFetchAccumulator(
     return problemResult("fetch_accumulator", resolved.problem);
   const { rpcUrl, univocity, logId, expectedChainId, binding } =
     resolved.value;
+
+  // forReceipt's leaf inputs are validated before any JSON-RPC call
+  // (F1/1.5.10): grant receipts are unsupported here (no exported way to
+  // derive the grant leaf without reimplementing the verifier's private
+  // COSE-vs-raw-grant dispatch — see recomputePeakForReceipt), and a
+  // payload receipt needs both payload and entryId to recompute its peak.
+  let leafInput:
+    | { receiptBytes: Uint8Array; payloadBytes: Uint8Array; entryId: string }
+    | undefined;
+  if (args.forReceipt !== undefined) {
+    if (args.forReceipt.grant === true) {
+      return problemResult("fetch_accumulator", {
+        code: "unsupported_input",
+        message:
+          "forReceipt with grant true is not supported by this version; verify_fetched_receipt handles grant receipts",
+      });
+    }
+    if (
+      args.forReceipt.payload === undefined ||
+      args.forReceipt.entryId === undefined
+    ) {
+      return problemResult("fetch_accumulator", {
+        code: "missing_input",
+        message:
+          "forReceipt needs payload and entryId (or grant true with the committed grant bytes) to recompute the receipt's peak",
+      });
+    }
+    leafInput = {
+      receiptBytes: resolveBytes(
+        args.forReceipt.receipt,
+        "forReceipt.receipt",
+      ),
+      payloadBytes: resolveBytes(
+        args.forReceipt.payload,
+        "forReceipt.payload",
+      ),
+      entryId: args.forReceipt.entryId,
+    };
+  }
 
   const result = await fetchAccumulatorSnapshot(
     {
@@ -857,24 +1048,114 @@ async function handleFetchAccumulator(
     result.at,
     binding,
   );
-  return ok(
-    `read accumulator (size ${result.size}) from ${result.univocity} on chain ${result.chainId} at block ${result.blockNumber}`,
+
+  // Without forReceipt: unchanged (F1).
+  if (leafInput === undefined) {
+    return ok(
+      `read accumulator (size ${result.size}) from ${result.univocity} on chain ${result.chainId} at block ${result.blockNumber}`,
+      accumulatorStructured(result, logId, result.snapshot, provenance),
+    );
+  }
+
+  let peak: Uint8Array;
+  try {
+    peak = await recomputePeakForReceipt({
+      receipt: leafInput.receiptBytes,
+      payload: leafInput.payloadBytes,
+      entryId: leafInput.entryId,
+    });
+  } catch (err) {
+    return problemResult("fetch_accumulator", {
+      code: "receipt_malformed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (peakHeldIn(peak, result.accumulator)) {
+    return ok(
+      `read accumulator (size ${result.size}) from ${result.univocity} on chain ${result.chainId} at block ${result.blockNumber}: holds the receipt's peak`,
+      accumulatorStructured(result, logId, result.snapshot, provenance),
+    );
+  }
+
+  // F1/F2: the latest state does not hold the peak — walk published
+  // history backwards from this read's own block.
+  const scan = await scanCheckpointHistory(
     {
-      snapshot: bytesSummary(result.snapshot),
-      accumulator: {
-        size: Number(result.size),
-        peaks: result.accumulator.map(
-          (p) => `0x${Buffer.from(p).toString("hex")}`,
-        ),
-        blockNumber: Number(result.blockNumber),
-        blockHash: result.blockHash,
+      rpcUrl,
+      univocity: result.univocity,
+      logId,
+      latestBlock: result.blockNumber,
+      ...historyBounds(args.chain.history),
+    },
+    (checkpoints) =>
+      selectCheckpoint(checkpoints, async (cp) =>
+        peakHeldIn(peak, cp.accumulator),
+      ),
+    { fetchImpl: deps.fetchImpl },
+  );
+
+  if (scan.kind === "problem") {
+    return problemResult("fetch_accumulator", {
+      ...scan.problem,
+      scannedFrom: Number(scan.scannedFrom),
+      scannedTo: Number(scan.scannedTo),
+      requests: scan.requests,
+    });
+  }
+
+  if (scan.kind === "exhausted") {
+    return ok(
+      `no published checkpoint between blocks ${scan.scannedFrom} and ${scan.scannedTo} holds this receipt's peak (${scan.requests} requests)`,
+      {
+        problem: {
+          code: "history_scan_exhausted",
+          scannedFrom: Number(scan.scannedFrom),
+          scannedTo: Number(scan.scannedTo),
+          checkpointsSeen: scan.checkpointsSeen,
+          requests: scan.requests,
+        },
+        latest: {
+          size: Number(result.size),
+          blockNumber: Number(result.blockNumber),
+        },
+        supports: SUPPORTS.fetch_accumulator,
+      },
+    );
+  }
+
+  const cp: PublishedCheckpoint = scan.checkpoint;
+  const historySnapshot = toKnownAccumulator(cp, {
+    chainId: result.chainId,
+    univocity: result.univocity,
+    logId,
+  });
+  const historyProvenance: Provenance = {
+    ...provenance,
+    history: {
+      blockNumber: Number(cp.blockNumber),
+      blockHash: cp.blockHash,
+      size: Number(cp.size),
+      scannedFrom: Number(scan.scannedFrom),
+      scannedTo: Number(scan.scannedTo),
+      requests: scan.requests,
+    },
+  };
+  return ok(
+    `read accumulator (size ${cp.size}) from published checkpoint history at block ${cp.blockNumber}: holds the receipt's peak`,
+    accumulatorStructured(
+      {
+        size: cp.size,
+        accumulator: cp.accumulator,
+        blockNumber: cp.blockNumber,
+        blockHash: cp.blockHash,
         chainId: result.chainId,
         univocity: result.univocity,
-        logId,
       },
-      provenance,
-      supports: SUPPORTS.fetch_accumulator,
-    },
+      logId,
+      historySnapshot,
+      historyProvenance,
+    ),
   );
 }
 
@@ -964,6 +1245,19 @@ function rpcUrlFromProvenance(p: Provenance): string | undefined {
   return typeof p.from === "object" ? p.from.rpcUrl : undefined;
 }
 
+/** The chain path's own state, kept around only so a `peak_not_in_known_accumulator`
+ *  result can trigger F1's history scan from the same block/binding the
+ *  initial `logState` read already established. `undefined` for a
+ *  supplied root, which never scans. */
+type ChainScanContext = {
+  rpcUrl: string;
+  univocity: string;
+  logId: string;
+  chainId: number;
+  latestBlock: bigint;
+  history: HistoryInput | undefined;
+};
+
 async function handleVerifyFetchedReceipt(
   args: VerifyFetchedArgs,
   deps: ResolvedDeps,
@@ -982,8 +1276,9 @@ async function handleVerifyFetchedReceipt(
   );
 
   let trust: TrustRoot;
-  let rootProvenance: "supplied" | "chain-read";
+  let rootProvenance: "supplied" | "chain-read" | "chain-read-history";
   let rootProvenanceValue: Provenance;
+  let chainScan: ChainScanContext | undefined;
 
   if (args.trust.root === "known-accumulator" && "chain" in args.trust) {
     const resolvedChain = resolveChainInput(args.trust.chain, deps);
@@ -1013,6 +1308,14 @@ async function handleVerifyFetchedReceipt(
       snapshot.at,
       binding,
     );
+    chainScan = {
+      rpcUrl,
+      univocity: snapshot.univocity,
+      logId,
+      chainId: snapshot.chainId,
+      latestBlock: snapshot.blockNumber,
+      history: args.trust.chain.history,
+    };
   } else {
     trust = resolveSuppliedRoot(args.trust);
     rootProvenance = "supplied";
@@ -1020,7 +1323,11 @@ async function handleVerifyFetchedReceipt(
   }
 
   const kind: "payload" | "grant" = args.grant === true ? "grant" : "payload";
-  let result: FetchedVerifyResult;
+
+  let runVerify: (
+    verifyTrust: TrustRoot,
+    verifyRootProvenance: "supplied" | "chain-read" | "chain-read-history",
+  ) => Promise<FetchedVerifyResult>;
 
   if (kind === "payload") {
     if (args.payload === undefined || args.entryId === undefined) {
@@ -1031,14 +1338,16 @@ async function handleVerifyFetchedReceipt(
       });
     }
     const payloadBytes = resolveBytes(args.payload, "payload");
-    result = await verifyFetched({
-      kind: "payload",
-      receipt: fetchedReceipt.bytes,
-      payload: payloadBytes,
-      entryId: args.entryId,
-      trust,
-      rootProvenance,
-    });
+    const entryId = args.entryId;
+    runVerify = (verifyTrust, verifyRootProvenance) =>
+      verifyFetched({
+        kind: "payload",
+        receipt: fetchedReceipt.bytes,
+        payload: payloadBytes,
+        entryId,
+        trust: verifyTrust,
+        rootProvenance: verifyRootProvenance,
+      });
   } else {
     if (args.payload === undefined) {
       return problemResult("verify_fetched_receipt", {
@@ -1048,14 +1357,102 @@ async function handleVerifyFetchedReceipt(
       });
     }
     const committedGrant = resolveBytes(args.payload, "committedGrant");
-    result = await verifyFetched({
-      kind: "grant",
-      receipt: fetchedReceipt.bytes,
-      committedGrant,
-      ...(args.entryId !== undefined ? { entryId: args.entryId } : {}),
-      trust,
-      rootProvenance,
+    const entryId = args.entryId;
+    runVerify = (verifyTrust, verifyRootProvenance) =>
+      verifyFetched({
+        kind: "grant",
+        receipt: fetchedReceipt.bytes,
+        committedGrant,
+        ...(entryId !== undefined ? { entryId } : {}),
+        trust: verifyTrust,
+        rootProvenance: verifyRootProvenance,
+      });
+  }
+
+  let result = await runVerify(trust, rootProvenance);
+
+  // F1: the latest chain state didn't hold the peak — walk published
+  // history backwards from this read's own block, re-verifying under
+  // each candidate checkpoint (newest first) until one is ok.
+  if (
+    chainScan !== undefined &&
+    rootProvenance === "chain-read" &&
+    isPeakNotInKnownAccumulator(result)
+  ) {
+    const scan = await scanCheckpointHistory(
+      {
+        rpcUrl: chainScan.rpcUrl,
+        univocity: chainScan.univocity,
+        logId: chainScan.logId,
+        latestBlock: chainScan.latestBlock,
+        ...historyBounds(chainScan.history),
+      },
+      (checkpoints) =>
+        selectCheckpoint(checkpoints, async (cp) => {
+          const candidateSnapshot = toKnownAccumulator(cp, {
+            chainId: chainScan!.chainId,
+            univocity: chainScan!.univocity,
+            logId: chainScan!.logId,
+          });
+          const candidate = await runVerify(
+            { root: "known-accumulator", accumulator: candidateSnapshot },
+            "chain-read-history",
+          );
+          return candidate.ok;
+        }),
+      { fetchImpl: deps.fetchImpl },
+    );
+
+    if (scan.kind === "problem") {
+      return problemResult("verify_fetched_receipt", {
+        ...scan.problem,
+        scannedFrom: Number(scan.scannedFrom),
+        scannedTo: Number(scan.scannedTo),
+        requests: scan.requests,
+      });
+    }
+
+    if (scan.kind === "exhausted") {
+      return ok(
+        `no published checkpoint between blocks ${scan.scannedFrom} and ${scan.scannedTo} holds this receipt's peak (${scan.requests} requests)`,
+        {
+          problem: {
+            code: "history_scan_exhausted",
+            scannedFrom: Number(scan.scannedFrom),
+            scannedTo: Number(scan.scannedTo),
+            checkpointsSeen: scan.checkpointsSeen,
+            requests: scan.requests,
+          },
+          latest: result,
+          supports: SUPPORTS.verify_fetched_receipt,
+        },
+      );
+    }
+
+    // match: verify once more under the selected checkpoint (F1) — the
+    // final result and provenance are this checkpoint's, not the
+    // intermediate `accepts` check's.
+    const cp: PublishedCheckpoint = scan.checkpoint;
+    const candidateSnapshot = toKnownAccumulator(cp, {
+      chainId: chainScan.chainId,
+      univocity: chainScan.univocity,
+      logId: chainScan.logId,
     });
+    result = await runVerify(
+      { root: "known-accumulator", accumulator: candidateSnapshot },
+      "chain-read-history",
+    );
+    rootProvenanceValue = {
+      ...rootProvenanceValue,
+      history: {
+        blockNumber: Number(cp.blockNumber),
+        blockHash: cp.blockHash,
+        size: Number(cp.size),
+        scannedFrom: Number(scan.scannedFrom),
+        scannedTo: Number(scan.scannedTo),
+        requests: scan.requests,
+      },
+    };
   }
 
   const provenance = { receipt: receiptProvenance, root: rootProvenanceValue };
@@ -1116,7 +1513,10 @@ export function makeFetchGenesisTool(deps: ResolvedDeps) {
 }
 
 export function makeFetchAccumulatorTool(deps: ResolvedDeps) {
-  return (args: { chain: ChainInput }) =>
+  return (args: {
+    chain: ChainInput;
+    forReceipt?: ForReceiptInput | undefined;
+  }) =>
     guardHandler("fetch_accumulator", () =>
       handleFetchAccumulator(args, deps),
     );

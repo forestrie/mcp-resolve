@@ -41,3 +41,11 @@ export type {
   LogStateProblem,
   FetchAccumulatorSnapshotResult,
 } from "./chain.js";
+
+export { scanCheckpointHistory, fetchCheckpointHistory } from "./history.js";
+export type {
+  ScanCheckpointHistoryInput,
+  ScanCheckpointHistoryResult,
+  FetchCheckpointHistoryResult,
+  CheckpointHistoryProblem,
+} from "./history.js";

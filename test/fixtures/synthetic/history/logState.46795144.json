@@ -1,0 +1,65 @@
+{
+  "capturedAt": "2026-09-13T22:29:37.551Z",
+  "note": "SYNTHESISED — plan-2609-06 step 1.2/1.3 buried-peak fixture. Not a real chain read: fabricated by test/fixtures/synthetic/history/generate.mjs from the frozen real checkpoints in test/fixtures/chain/history/e8345800-a747-4e62-9409-61622b836f1f/. See this directory's PROVENANCE.md.",
+  "logId": "e8345800-a747-4e62-9409-61622b836f1f",
+  "univocity": "0x678768643B4667aEDcB313cC81624aA560b7f0Ca",
+  "chainId": "84532",
+  "calls": {
+    "eth_chainId": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_chainId",
+        "params": []
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x14a34",
+        "id": 1
+      }
+    },
+    "eth_getBlockByNumber": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "latest",
+          false
+        ]
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "number": "0x2ca0988",
+          "hash": "0xf7d44cc7015fc15bc4d0b91c9859f13d89df230fff7d413054b555405dba0dd9"
+        },
+        "id": 2
+      }
+    },
+    "eth_call": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "eth_call",
+        "params": [
+          {
+            "to": "0x678768643b4667aedcb313cc81624aa560b7f0ca",
+            "data": "0xeecac1b700000000000000000000000000000000e8345800a7474e62940961622b836f1f"
+          },
+          "0x2ca0988"
+        ]
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000000f000000000000000000000000000000000000000000000000000000000000000106d7f3301959b7f496bd9bf0bc9c01cc00fd3b5a839527dcc7e5b232cad57997",
+        "id": 3
+      }
+    }
+  },
+  "blockNumber": "46795144",
+  "blockHash": "0xf7d44cc7015fc15bc4d0b91c9859f13d89df230fff7d413054b555405dba0dd9"
+}

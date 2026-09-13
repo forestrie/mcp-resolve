@@ -34,8 +34,11 @@ import {
 } from "../../src/core/index.js";
 import { TOOL_DESCRIPTIONS, TOOL_TITLES } from "../../src/node/text.js";
 import {
+  SYNTHETIC_HISTORY_DIR,
+  createChainHistoryReplay,
   createChainReplay,
   createLaneAReplay,
+  type ChainHistoryReplay,
   type ChainReplay,
   type LaneAReplay,
 } from "../net/replay.js";
@@ -104,6 +107,12 @@ const LOG_KEY_PATH = path.join(VERIFY_FIXTURES_DIR, "log-key.xy.b64");
 const BUNDLED_RECEIPT_PATH = path.join(VERIFY_FIXTURES_DIR, "receipt.cbor");
 const LANE_A_GENESIS_PATH = path.join(LANE_A_DIR, "genesis.cbor");
 const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
+/** The synthetic buried-peak fixture's fabricated "latest" `logState`
+ *  (size 15, block 46795144) — plan-2609-06 F1/F2. */
+const SYNTHETIC_LOGSTATE_PATH = path.join(
+  SYNTHETIC_HISTORY_DIR,
+  "logState.46795144.json",
+);
 
 function requestUrl(input: string | URL | Request): string {
   if (typeof input === "string") return input;
@@ -122,6 +131,49 @@ function combineFetch(laneA: LaneAReplay, chain: ChainReplay): typeof fetch {
   ): Promise<Response> => {
     if (requestUrl(input) === RPC_URL) return chain.fetch(input, init);
     return laneA.fetch(input, init);
+  }) as unknown as typeof fetch;
+}
+
+/** As `combineFetch`, plus routing an RPC-URL `eth_getLogs` call (F1/F2's
+ *  history scan) to a `ChainHistoryReplay` instead of the plain
+ *  `ChainReplay` (which only ever serves `eth_chainId`/
+ *  `eth_getBlockByNumber`/`eth_call`, one `logState` read's worth). */
+function combineFetchWithHistory(
+  laneA: LaneAReplay,
+  chain: ChainReplay,
+  history: ChainHistoryReplay,
+): typeof fetch {
+  return (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ): Promise<Response> => {
+    if (requestUrl(input) !== RPC_URL) return laneA.fetch(input, init);
+    const bodyText =
+      typeof init?.body === "string" ? init.body : String(init?.body ?? "");
+    const method = (JSON.parse(bodyText) as { method?: unknown }).method;
+    return method === "eth_getLogs"
+      ? history.fetch(input, init)
+      : chain.fetch(input, init);
+  }) as unknown as typeof fetch;
+}
+
+/** `fetch_accumulator`'s buried-peak fallback makes only RPC-URL calls (no
+ *  lane-A HTTP) — routed between a `ChainReplay` (the `logState` read) and
+ *  a `ChainHistoryReplay` (the `eth_getLogs` scan) by JSON-RPC method. */
+function combineChainAndHistory(
+  chain: ChainReplay,
+  history: ChainHistoryReplay,
+): typeof fetch {
+  return (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ): Promise<Response> => {
+    const bodyText =
+      typeof init?.body === "string" ? init.body : String(init?.body ?? "");
+    const method = (JSON.parse(bodyText) as { method?: unknown }).method;
+    return method === "eth_getLogs"
+      ? history.fetch(input, init)
+      : chain.fetch(input, init);
   }) as unknown as typeof fetch;
 }
 
@@ -712,6 +764,131 @@ describe("fetch_accumulator", () => {
     expect(structured.accumulator.size).toBe(11);
     expect(chain.calls).toHaveLength(3);
   });
+
+  /* -------- plan-2609-06 F1/F2: the buried-peak history fallback -------- */
+
+  it("forReceipt: the synthetic latest state doesn't hold the peak, the scan finds the real size-11 checkpoint, provenance.history, 4 history requests", async () => {
+    const chain = await createChainReplay(undefined, SYNTHETIC_LOGSTATE_PATH);
+    const history = await createChainHistoryReplay();
+    const result = await withClient(
+      { fetchImpl: combineChainAndHistory(chain, history), env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_accumulator",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+            forReceipt: {
+              receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              entryId: ENTRY_ID,
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      accumulator: { size: number; blockNumber: number };
+      provenance: Provenance;
+      supports: Supports;
+    };
+    expect(structured.accumulator.size).toBe(11);
+    expect(structured.accumulator.blockNumber).toBe(46764680);
+    expect(structured.provenance.history).toMatchObject({
+      blockNumber: 46764680,
+      size: 11,
+      requests: 4,
+    });
+    expect(structured.supports).toEqual(SUPPORTS.fetch_accumulator);
+
+    expect(chain.calls).toHaveLength(3); // the initial logState read
+    expect(history.calls).toHaveLength(4); // the buried-peak scan (F2)
+  });
+
+  it("forReceipt without payload/entryId is missing_input before any JSON-RPC call, zero requests", async () => {
+    const calls: string[] = [];
+    const countingFetch = (async (
+      input: Parameters<typeof fetch>[0],
+    ): Promise<Response> => {
+      calls.push(requestUrl(input));
+      throw new Error("no request should have been made");
+    }) as unknown as typeof fetch;
+
+    const result = await withClient(
+      { fetchImpl: countingFetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_accumulator",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+            forReceipt: {
+              receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("missing_input");
+    expect(structured.problem.message).toBe(
+      "forReceipt needs payload and entryId (or grant true with the committed grant bytes) to recompute the receipt's peak",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("forReceipt with grant:true is unsupported_input, zero requests", async () => {
+    const calls: string[] = [];
+    const countingFetch = (async (
+      input: Parameters<typeof fetch>[0],
+    ): Promise<Response> => {
+      calls.push(requestUrl(input));
+      throw new Error("no request should have been made");
+    }) as unknown as typeof fetch;
+
+    const result = await withClient(
+      { fetchImpl: countingFetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_accumulator",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+            forReceipt: {
+              receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              grant: true,
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("unsupported_input");
+    expect(structured.problem.message).toBe(
+      "forReceipt with grant true is not supported by this version; verify_fetched_receipt handles grant receipts",
+    );
+    expect(calls).toHaveLength(0);
+  });
 });
 
 /* ----------------------------- verify_fetched_receipt ---------------------- */
@@ -907,6 +1084,127 @@ describe("verify_fetched_receipt", () => {
 
     expect(laneA.calls).toHaveLength(1);
     expect(chain.calls).toHaveLength(3);
+  });
+
+  /* -------- plan-2609-06 F1/F2: the buried-peak history fallback -------- */
+
+  it("known-accumulator, chain history fallback: the synthetic latest state doesn't hold the peak, the scan finds the real size-11 checkpoint, split-view ok, both chain diagnostics, 4 history requests, anchor at block 46764680", async () => {
+    const laneA = await createLaneAReplay();
+    const chain = await createChainReplay(undefined, SYNTHETIC_LOGSTATE_PATH);
+    const history = await createChainHistoryReplay();
+    const result = await withClient(
+      {
+        fetchImpl: combineFetchWithHistory(laneA, chain, history),
+        env: {},
+      },
+      (client) =>
+        client.callTool({
+          name: "verify_fetched_receipt",
+          arguments: {
+            receiptUrl: laneA.urls["receipt-self"],
+            entryId: ENTRY_ID,
+            payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+            trust: {
+              root: "known-accumulator",
+              chain: {
+                rpcUrl: RPC_URL,
+                univocity: UNIVOCITY,
+                logId: PUBLICATIONS_LOG_ID,
+                chainId: CHAIN_ID,
+              },
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as VerifyStructured;
+    expect(structured.root).toBe("known-accumulator");
+    expect(structured.questions["split-view"]?.status).toBe("ok");
+
+    const diagnosticCodes = structured.diagnostics.map((d) => d.code);
+    expect(diagnosticCodes).toEqual(
+      expect.arrayContaining([
+        "receipt_fetched_from_operator",
+        "root_read_from_chain",
+        "root_read_from_chain_history",
+      ]),
+    );
+    expect(structured.diagnostics).toContainEqual({
+      code: "root_read_from_chain_history",
+      message:
+        "the accumulator was selected from published checkpoint history in this call, at the caller's RPC URL",
+    });
+
+    expect(structured.anchor).toMatchObject({
+      anchoredSize: "11",
+      blockNumber: "46764680",
+    });
+
+    expect(structured.provenance.root.history).toMatchObject({
+      blockNumber: 46764680,
+      size: 11,
+      requests: 4,
+    });
+    // F2: provenance.source is "chain-read" even when the accumulator came
+    // from history — "chain-read-history" is an internal rootProvenance
+    // label only, never emitted in structuredContent.
+    expect(structured.provenance.root.source).toBe("chain-read");
+
+    expect(laneA.calls).toHaveLength(1);
+    expect(chain.calls).toHaveLength(3); // the initial logState read
+    expect(history.calls).toHaveLength(4); // the buried-peak scan (F2)
+  });
+
+  it("known-accumulator, chain history fallback with a tight budget: history_scan_exhausted, isError:false, no throw", async () => {
+    const laneA = await createLaneAReplay();
+    const chain = await createChainReplay(undefined, SYNTHETIC_LOGSTATE_PATH);
+    const history = await createChainHistoryReplay();
+    const result = await withClient(
+      {
+        fetchImpl: combineFetchWithHistory(laneA, chain, history),
+        env: {},
+      },
+      (client) =>
+        client.callTool({
+          name: "verify_fetched_receipt",
+          arguments: {
+            receiptUrl: laneA.urls["receipt-self"],
+            entryId: ENTRY_ID,
+            payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+            trust: {
+              root: "known-accumulator",
+              chain: {
+                rpcUrl: RPC_URL,
+                univocity: UNIVOCITY,
+                logId: PUBLICATIONS_LOG_ID,
+                chainId: CHAIN_ID,
+                history: { maxBlocks: 20_000 },
+              },
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: {
+        code: string;
+        scannedFrom: number;
+        scannedTo: number;
+        checkpointsSeen: number;
+        requests: number;
+      };
+      latest: unknown;
+      supports: Supports;
+    };
+    expect(structured.problem.code).toBe("history_scan_exhausted");
+    expect(structured.problem.requests).toBe(2);
+    expect(structured.problem.checkpointsSeen).toBe(1);
+    expect(structured.problem.scannedFrom).toBe(46775145);
+    expect(structured.problem.scannedTo).toBe(46795144);
+    expect(structured.latest).toBeDefined();
+    expect(structured.supports).toEqual(SUPPORTS.verify_fetched_receipt);
   });
 
   it("refuses trust:{root:'genesis', fetch:true} (no genesis bytes) at input validation, zero requests", async () => {
