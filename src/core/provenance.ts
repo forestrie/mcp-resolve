@@ -11,11 +11,25 @@ import type { QuestionName, RootName } from "@forestrie/mcp-verify";
 
 export type ProvenanceSource = "fetched" | "chain-read" | "supplied";
 
+/** Present only when the accumulator was selected from published
+ *  `CheckpointPublished` history (F1/F2) rather than the latest `logState`
+ *  read: the selected checkpoint's own block/size, and how much of the
+ *  scan it cost. */
+export type HistoryProvenance = {
+  blockNumber: number;
+  blockHash: string;
+  size: number;
+  scannedFrom: number;
+  scannedTo: number;
+  requests: number;
+};
+
 export type Provenance = {
   source: ProvenanceSource;
   from: string | { rpcUrl: string; univocity: string; chainId: number };
   at: string;
   binding?: "held-genesis" | "explicit";
+  history?: HistoryProvenance;
 };
 
 export type SupportsRow = { question: QuestionName; root: RootName };
@@ -65,9 +79,14 @@ export const SUPPORTS: Record<ToolName, Supports> = {
 };
 
 /** Appended to the verifier's own diagnostics by `compose.ts`'s
- *  `verifyFetched` — always `receipt_fetched_from_operator`, and
- *  `root_read_from_chain` only when the root came from a chain read. */
+ *  `verifyFetched` — always `receipt_fetched_from_operator`;
+ *  `root_read_from_chain` when the root came from a chain read (the
+ *  latest `logState`, or a checkpoint selected from history); and
+ *  `root_read_from_chain_history` (plan-2609-06 F1) additionally when that
+ *  chain read walked published `CheckpointPublished` history rather than
+ *  reading `logState` directly. */
 export const COURIER_DIAGNOSTIC_CODES = [
   "receipt_fetched_from_operator",
   "root_read_from_chain",
+  "root_read_from_chain_history",
 ] as const;

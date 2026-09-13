@@ -67,13 +67,31 @@ export { SUPPORTS, COURIER_DIAGNOSTIC_CODES } from "./provenance.js";
 export type {
   ProvenanceSource,
   Provenance,
+  HistoryProvenance,
   SupportsRow,
   Supports,
   ToolName,
 } from "./provenance.js";
 
-export { verifyFetched, summarizeFetched } from "./compose.js";
+export {
+  verifyFetched,
+  summarizeFetched,
+  isPeakNotInKnownAccumulator,
+  receiptPeakHeld,
+} from "./compose.js";
 export type { VerifyFetchedInput } from "./compose.js";
+
+export {
+  CHECKPOINT_PUBLISHED_TOPIC0,
+  HistoryError,
+  checkpointPublishedTopics,
+  decodeCheckpointPublishedLog,
+  historyWindows,
+  selectCheckpoint,
+  sortNewestFirst,
+  toKnownAccumulator,
+} from "./history.js";
+export type { HistoryWindow, PublishedCheckpoint } from "./history.js";
 
 // The verifier's trust-root input union: `VerifyFetchedInput["trust"]`'s
 // type, re-exported so a caller of `verifyFetched` need not also depend on
