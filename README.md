@@ -1,9 +1,159 @@
 # @forestrie/mcp-resolve
 
-MCP server that fetches receipts, genesis documents and accumulator
-snapshots for @forestrie/mcp-verify to verify — every result says where its
-bytes came from.
+An MCP server that fetches the material
+[`@forestrie/mcp-verify`](https://www.npmjs.com/package/@forestrie/mcp-verify)
+verifies: a receipt, a genesis document, an accumulator snapshot, a
+registration status, a service configuration. Every result says where its
+bytes came from and which of the four questions of the trust model they can
+support. Listed in the MCP registry as `dev.forestrie/resolve`.
 
-Pre-release: phase 1 of the plan. The orchestrator writes this document.
+This package is the courier, not the verifier. The verifier runs entirely in
+your process with no network, no account, no key and no backend, and its
+own rule is that installing it can never imply a network dependency. So
+anything that fetches lives here, under a separate name, and depends on the
+verifier's published core at an exact version pin. The verifier never
+depends on this package.
 
-MIT licensed.
+## Use
+
+```json
+{
+  "mcpServers": {
+    "forestrie-resolve": {
+      "command": "npx",
+      "args": ["-y", "@forestrie/mcp-resolve"],
+      "env": {
+        "FORESTRIE_BASE_URL": "https://api-a.forest-2.forestrie.dev",
+        "FORESTRIE_RPC_URL": "https://<your-chain-rpc-endpoint>"
+      }
+    }
+  }
+}
+```
+
+Both environment variables are optional and both are yours. `baseUrl` is
+any SCRAPI base URL and `rpcUrl` is your own chain access; a call may pass
+either explicitly, and the environment values are used only when a call
+omits them. The package ships no default operator and no default chain
+provider, and names none.
+
+Two public lanes exist and are examples, not defaults:
+
+| Lane | Base URL                               | Service id      |
+| ---- | -------------------------------------- | --------------- |
+| A    | `https://api-a.forest-2.forestrie.dev` | `canopy-dev-1`  |
+| B    | `https://api-b.forest-2.forestrie.dev` | `canopy-prod-1` |
+
+Requires Node 20.11 or later.
+
+## The six tools
+
+| Tool                        | What it does                                                                                                                                              | Provenance                       | Supports                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `fetch_scitt_configuration` | `GET {baseUrl}/.well-known/scitt-configuration`                                                                                                           | fetched                          | none: operator self-description                                                                                         |
+| `query_registration`        | one `GET` of the registration-status URL for a statement's content hash; returns pending or the receipt location, never polls                             | fetched                          | none: registration status                                                                                               |
+| `fetch_receipt`             | `GET` a receipt by URL or by log coordinates; returns the bytes and the verifier's decoding of them                                                       | fetched                          | none on its own: a receipt is the operator's claim                                                                      |
+| `fetch_genesis`             | `GET` the forest's genesis document; returns the bytes and the chain binding they carry                                                                   | fetched                          | `sealing`, as `known-log-key` with the key this copy carries, and only if you keep the copy                             |
+| `fetch_accumulator`         | reads the log's published accumulator from the univocity contract at your RPC URL and returns the snapshot the `known-accumulator` root consumes          | chain-read                       | `split-view` against the chain; `sealing` and `append-authority` by inheritance from the contract's publish-time checks |
+| `verify_fetched_receipt`    | fetches a receipt and verifies it with the verifier's core under a root you supply as bytes, or under an accumulator read from the chain in the same call | fetched + supplied or chain-read | the verifier's own answers, passed through unaltered                                                                    |
+
+Every tool is annotated read-only, idempotent and open-world, because every
+one of them talks to something outside your process.
+
+## What a fetched thing proves
+
+A receipt fetched from the operator is the operator's claim until it is
+verified under a trust root you hold. The public trust model,
+[`spec/receipt-trust-model.md`](https://github.com/forestrie/protocol/blob/main/spec/receipt-trust-model.md)
+in `forestrie/protocol`, names four questions a receipt can answer
+(sealing, split-view, append-authority, attribution) and four trust roots a
+caller can verify under (`genesis`, `known-log-key`, `known-accumulator`,
+`checkpoint-chain`). The roots are not ordered. Which one is right depends
+on what you hold, and fetching changes what you hold.
+
+That is why every result here carries `provenance` (for each artefact:
+fetched from a URL, read from a chain, or supplied by you, and when) and
+`supports` (which questions the material can serve as evidence for, under
+which root, with a one-line note). The notes are fixed strings the tests
+assert verbatim; they are listed and explained in
+[docs/what-fetching-proves.md](docs/what-fetching-proves.md).
+
+Two consequences are built into the tool surface rather than left to
+documentation:
+
+- **A fetched genesis is never a root.** `verify_fetched_receipt` takes its
+  root as bytes you supply or as an accumulator read from the chain; its
+  schema has no form that fetches a genesis and verifies under it in the
+  same call. A genesis obtained from the operator at check time makes the
+  operator the supplier of both the receipt and the root, which proves
+  consistency with a document the operator chose to serve today and
+  nothing more. `fetch_genesis` exists so you can obtain the document once,
+  keep it, and pass it as bytes from then on.
+- **The chain binding is the forest's, never the operator's.** The
+  univocity contract address and chain id are bound in a forest's genesis
+  document. `fetch_accumulator` and the chain path of
+  `verify_fetched_receipt` take them from a genesis you hold, or
+  explicitly, never from a default, never from a genesis fetched inside the
+  call, and never from an environment variable.
+
+The verifier's own [`TRANSPARENCY.md`](https://github.com/forestrie/mcp-verify/blob/main/TRANSPARENCY.md)
+(shipped in its tarball) explains what a transparency log is and what a
+receipt contains; this package does not repeat it. Its
+[`docs/trust-roots.md`](https://github.com/forestrie/mcp-verify/blob/main/docs/trust-roots.md)
+explains the roots in depth.
+
+## What this package never does
+
+- Never writes: no registration, no grants, no keys.
+- Never polls: `query_registration` is one request, and you decide whether
+  to call it again. An HTTP 429 comes back as a structured `problem` with
+  `retryAfterMs`, not as an error.
+- Never chooses an operator or a chain provider for you.
+- Never caches a fetched genesis or accumulator across calls: every result
+  carries a fresh `at`.
+- Never edits the verifier's answers. `verify_fetched_receipt` returns the
+  verifier's `stages`, `questions` and `diagnostics` unaltered and appends
+  two diagnostics of its own that say where the bytes came from.
+  `not_answered_by_this_root` is a real answer and reaches you unchanged.
+
+## Layout and gates
+
+```
+src/core/   pure over bytes: URL construction, response classification,
+            provenance and supports labelling, the compose logic.
+            No node:*, no fetch, no fs. Exported as ".".
+src/net/    the ONLY place fetch is called; every function takes fetchImpl.
+            Exported as "./net".
+src/node/   the MCP adapter: SDK, stdio, {path}/base64 inputs, env defaults.
+            Exported as "./server".
+```
+
+CI blocks on: `src/core` bundling for the browser with no Node builtin;
+the unit project running under a `fetch` that throws (the network layer is
+tested only through injected fakes, replaying recorded exchanges frozen
+under `test/fixtures/` with a sha256 manifest and a `PROVENANCE.md`); one
+copy of `@forestrie/encoding` and `@forestrie/receipt-verify` in the repo
+and in a scratch install of the packed tarball; the real bin writing
+nothing to stdout but MCP frames; and `server.json` agreeing with
+`package.json`. A live project against a real lane exists, is opt-in by
+environment variable, and is never a required check.
+
+```
+pnpm test        # purity gates + unit tests
+pnpm typecheck
+pnpm build
+pnpm test:live   # FORESTRIE_LIVE=1 plus FORESTRIE_BASE_URL, FORESTRIE_RPC_URL and the chain values
+```
+
+Conventions, invariants and the release path are in [AGENTS.md](AGENTS.md).
+
+## Dependencies
+
+Exact pins, bumped deliberately: `@forestrie/mcp-verify` (core export
+only), `@forestrie/scrapi-client`, `@forestrie/receipt-verify`,
+`@forestrie/encoding`, `@modelcontextprotocol/sdk`. The chain read is three
+JSON-RPC calls made locally through the injected `fetchImpl`.
+
+## License
+
+MIT.
