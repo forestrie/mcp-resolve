@@ -1,0 +1,24 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "method": "eth_getLogs",
+    "params": [
+      {
+        "address": "0x678768643B4667aEDcB313cC81624aA560b7f0Ca",
+        "topics": [
+          "0x156942b408823cb05a16027962ea485fa7171d99779ee04094280b2569482426",
+          "0x00000000000000000000000000000000e8345800a7474e62940961622b836f1f"
+        ],
+        "fromBlock": "0x2c94639",
+        "toBlock": "0x2c96d48"
+      }
+    ]
+  },
+  "status": 200,
+  "response": {
+    "jsonrpc": "2.0",
+    "result": [],
+    "id": 8
+  }
+}
