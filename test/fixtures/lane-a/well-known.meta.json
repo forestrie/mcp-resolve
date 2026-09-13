@@ -1,0 +1,21 @@
+{
+  "url": "https://api-a.forest-2.forestrie.dev/.well-known/scitt-configuration",
+  "method": "GET",
+  "requestedAt": "2026-09-13T14:22:38Z",
+  "status": 200,
+  "headers": {
+    "date": "Sun, 13 Sep 2026 14:22:52 GMT",
+    "content-type": "application/json",
+    "content-length": "447",
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "Content-Type, Authorization, X-PAYMENT, X-Ops-Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-expose-headers": "X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE",
+    "server": "cloudflare",
+    "cf-ray": "a3a7ce74fdf22ffd-LHR",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  },
+  "bodySha256": "10ad04ae5bc8bbac551fe871987d7f80bc22a4fcb9ce4fe18256eef1dfed08a8",
+  "bodyBytes": 447,
+  "contentType": "application/json"
+}

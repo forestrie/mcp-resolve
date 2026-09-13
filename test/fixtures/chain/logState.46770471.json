@@ -1,0 +1,67 @@
+{
+  "capturedAt": "2026-09-13T14:20:31.365Z",
+  "note": "plan-2609-05 step 2.2. Three JSON-RPC 2.0 calls made once each to the owner-supplied RPC URL (not recorded). Responses verbatim.",
+  "logId": "e8345800-a747-4e62-9409-61622b836f1f",
+  "univocity": "0x678768643b4667aedcb313cc81624aa560b7f0ca",
+  "chainId": "84532",
+  "blockNumber": "46770471",
+  "blockHash": "0x713c531b734b5c1edb5c89e0182fdd6b52d0b9c80fd2bf0a395847b39091e170",
+  "calls": {
+    "eth_chainId": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_chainId",
+        "params": []
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x14a34",
+        "id": 1
+      }
+    },
+    "eth_getBlockByNumber": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "latest",
+          false
+        ]
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "number": "0x2c9a927",
+          "hash": "0x713c531b734b5c1edb5c89e0182fdd6b52d0b9c80fd2bf0a395847b39091e170",
+          "parentHash": "0xb1fcdf0a34df7f46ae520dfe3412a7438817081c78ff6c34316d91e838ef158d",
+          "timestamp": "0x6aa6b12e"
+        }
+      }
+    },
+    "eth_call": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "eth_call",
+        "params": [
+          {
+            "to": "0x678768643b4667aedcb313cc81624aa560b7f0ca",
+            "data": "0xeecac1b700000000000000000000000000000000e8345800a7474e62940961622b836f1f"
+          },
+          "0x2c9a927"
+        ]
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000000b000000000000000000000000000000000000000000000000000000000000000342c204375842f70756f2f751efc1a82fdc28dfc51a3a3cf3c7845337f01ed1fba032e47794a6cacb010cc3a0d01903287bed5faf2ac684525772072745a2195fca583b1e050b21202020575fe62913c91ed7fb350c29fe0eb4e1c27996e5b948",
+        "id": 3
+      }
+    }
+  }
+}
