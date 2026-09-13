@@ -1,0 +1,17 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "eth_getTransactionReceipt",
+    "params": [
+      "0x349a60482b1503325b906001ecb6a422a9acfe436f81afc9425b1cf1345af718"
+    ]
+  },
+  "status": 200,
+  "response": {
+    "blockNumber": "0x2c9139a",
+    "blockHash": "0x4d4649f8c241d0a0b4101764b3fc0b8c3a4725afb298783d369e586423be5a28",
+    "transactionHash": "0x349a60482b1503325b906001ecb6a422a9acfe436f81afc9425b1cf1345af718",
+    "status": "0x1"
+  }
+}
