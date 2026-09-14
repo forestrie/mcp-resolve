@@ -219,9 +219,27 @@ jobs:
           fi
           echo "OK: a tag build can never be a rehearsal"
 
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        with:
+          install: true
+
+      # This job has no matrix (unlike `check`); pinned to the same 22.x
+      # value that job's matrix develops on. pnpm still comes from mise,
+      # and `packageManager` keeps its version honest.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+
+      # NO registry credentials anywhere in this workflow. A passing install
+      # is the tokenless-install acceptance check.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
       # server.json can't read version/name from package.json at build time
       # (it's a static file the registry fetches directly), so prove both
-      # paths of the guard that keeps them honest.
+      # paths of the guard that keeps them honest. assert-server-json.mjs
+      # imports ajv/ajv-formats (F6), so this job now needs dependencies
+      # installed before these self-tests run.
       - name: assert-server-json self-test — pass path
         run: node scripts/assert-server-json.mjs .
 
