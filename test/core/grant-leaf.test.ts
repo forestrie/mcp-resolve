@@ -5,110 +5,41 @@
  * `@forestrie/mcp-verify`'s `src/node/demo.ts` use. `src/node/fixtures.ts`
  * is not part of the verifier's published exports (only `"."` and
  * `"./server"` are), so the small amount of fixture-rebuilding it does is
- * reproduced here rather than imported — same reproduction as
- * `test/core/compose.test.ts`, not imported from there either, so this
- * file stays a standalone pin on `grantLeafInputs`.
+ * reproduced in `test/core/grant-fixture.ts` rather than imported — same
+ * reproduction as `test/core/compose.test.ts`, not imported from there
+ * either.
+ *
+ * The COSE-branch describe blocks below read
+ * `test/fixtures/synthetic/grant-cose/grant.cose` — the verifier's frozen
+ * FOR-289 conformance grant (same grant `grant-fixture.ts` rebuilds),
+ * wrapped as a Forestrie-Grant COSE Sign1 and signed with a PUBLISHED
+ * TEST-ONLY key. See that directory's PROVENANCE.md for why it exists and
+ * what is fabricated.
  */
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  encodeGrantPayloadV0Canonical,
-  type Grant,
+  decodeCoseSign1,
+  encodeCoseSign1Raw,
+  verifyCoseSign1,
 } from "@forestrie/encoding";
-import { encodeKnownAccumulator } from "@forestrie/receipt-verify";
 import {
   recomputeReceiptPeak,
   verifyGrantReceipt,
   type TrustRoot,
 } from "@forestrie/mcp-verify";
+import { GrantLeafInputError, grantLeafInputs } from "../../src/core/index.js";
 import {
-  GrantLeafInputError,
-  grantLeafInputs,
-  toContractLogId,
-} from "../../src/core/index.js";
-
-const repoRoot = new URL("../../", import.meta.url).pathname;
-const FIXTURES_DIR = `${repoRoot}node_modules/@forestrie/mcp-verify/fixtures`;
-
-function readFixture(relative: string): Uint8Array {
-  return new Uint8Array(readFileSync(`${FIXTURES_DIR}/${relative}`));
-}
-
-type GoldenManifest = {
-  logId: string;
-  grantDataHex: string;
-  idtimestampBe8Hex: string;
-};
-
-const GOLDEN_MANIFEST = JSON.parse(
-  readFileSync(`${FIXTURES_DIR}/golden/manifest.json`, "utf8"),
-) as GoldenManifest;
-
-function fromHex(hex: string): Uint8Array {
-  const clean = hex.replace(/^0x/, "");
-  const out = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
-
-function uuidToBytes(uuid: string): Uint8Array {
-  return fromHex(uuid.replace(/-/g, ""));
-}
-
-/** `@forestrie/mcp-verify`'s `src/node/fixtures.ts` `goldenGrant()`,
- *  reproduced: owner and target are the same log, flag byte 3 is 0x03 and
- *  byte 7 is 0x01, heights are zero, `grantData` is the manifest's 64
- *  bytes. */
-function goldenGrant(): Grant {
-  const owner = uuidToBytes(GOLDEN_MANIFEST.logId);
-  const flags = new Uint8Array(8);
-  flags[3] = 0x03;
-  flags[7] = 0x01;
-  return {
-    logId: owner,
-    ownerLogId: owner,
-    grant: flags,
-    maxHeight: 0,
-    minGrowth: 0,
-    grantData: fromHex(GOLDEN_MANIFEST.grantDataHex),
-  };
-}
-
-/** The golden committed grant as raw Forestrie-Grant v0 payload CBOR — NOT
- *  a Forestrie-Grant COSE Sign1. This is what `goldenCommittedGrant()`
- *  builds in the verifier's own fixtures (`encodeGrantPayloadV0Canonical`,
- *  no COSE wrapping), confirmed by `verify-grant-receipt.test.ts` always
- *  supplying `entryId` alongside it — a raw payload carries no embedded
- *  idtimestamp. Test (b) below pins that fact for `grantLeafInputs`. */
-function goldenCommittedGrant(): Uint8Array {
-  return encodeGrantPayloadV0Canonical(goldenGrant());
-}
-
-function goldenEntryId(): string {
-  return `${GOLDEN_MANIFEST.idtimestampBe8Hex}0000000000000001`;
-}
-
-const RECEIPT = () => readFixture("golden/grant-receipt.cbor");
-
-/** A SYNTHETIC known-accumulator snapshot binding (chainId 84532n — Base
- *  Sepolia, matching the rest of this package's fixtures; 20 zero bytes
- *  for univocity; the golden manifest's log id as bytes32 via
- *  `toContractLogId`; blockNumber 1n; 32 zero bytes for blockHash) around
- *  whatever peak/size the test derives — not a real chain read. */
-function knownAccumulatorSnapshot(peak: Uint8Array, leafIndex: bigint) {
-  return encodeKnownAccumulator({
-    version: 1,
-    chainId: 84532n,
-    univocity: new Uint8Array(20),
-    logId: fromHex(toContractLogId(GOLDEN_MANIFEST.logId)),
-    size: leafIndex + 1n,
-    accumulator: [peak],
-    blockNumber: 1n,
-    blockHash: new Uint8Array(32),
-  });
-}
+  GOLDEN_MANIFEST,
+  RECEIPT,
+  fromHex,
+  goldenCommittedGrant,
+  goldenEntryId,
+  knownAccumulatorSnapshot,
+} from "./grant-fixture.js";
+import { generate } from "../fixtures/synthetic/grant-cose/generate.mjs";
 
 describe("grantLeafInputs — cross-check against the verifier", () => {
   it("derives leaf inputs that make the verifier's own verifyGrantReceipt pass at a known-accumulator built from the recomputed peak, and fail when the peak is tampered", async () => {
@@ -171,11 +102,9 @@ describe("grantLeafInputs — which form the golden fixture grant is", () => {
     expect(idtimestampBe8).toEqual(fromHex(GOLDEN_MANIFEST.idtimestampBe8Hex));
   });
 
-  // The COSE-Sign1 form is not trivially buildable from the same grant in
-  // this package: wrapping a grant as a Forestrie-Grant COSE Sign1 needs a
-  // signing key (`@forestrie/grant-builder`), which is not a dependency
-  // here. Not tested — the fixture grant is raw, and that is the branch
-  // covered above.
+  // The COSE-Sign1 branch is exercised separately below, against
+  // `test/fixtures/synthetic/grant-cose/grant.cose` — the same grant as
+  // above, wrapped as a Forestrie-Grant COSE Sign1.
 });
 
 describe("grantLeafInputs — undecodable committedGrant", () => {
@@ -190,5 +119,208 @@ describe("grantLeafInputs — undecodable committedGrant", () => {
     const err = caught as GrantLeafInputError;
     expect(err.kind).toBe("undecodable");
     expect(err.detail).toBeTruthy();
+  });
+});
+
+/**
+ * Forestrie-Grant COSE Sign1 unprotected header labels
+ * (`@forestrie/receipt-verify` 1.0.0 `dist/forest-genesis-labels.js`,
+ * confirmed NOT re-exported from that package's `"."` index — only the
+ * `.d.ts` source file declares them). Defined locally, matching
+ * `test/fixtures/synthetic/grant-cose/generate.mjs`'s own copy with the
+ * same citation.
+ */
+const HEADER_IDTIMESTAMP = -65537;
+const HEADER_FORESTRIE_GRANT_V0 = -65538;
+
+const GRANT_COSE_DIR = new URL(
+  "../fixtures/synthetic/grant-cose/",
+  import.meta.url,
+).pathname;
+
+function readGrantCoseFixture(): Uint8Array {
+  return new Uint8Array(readFileSync(`${GRANT_COSE_DIR}grant.cose`));
+}
+
+type TestKeyJwk = JsonWebKey & { warning: string };
+
+function readTestKeyJwk(): TestKeyJwk {
+  return JSON.parse(
+    readFileSync(`${GRANT_COSE_DIR}test-key.json`, "utf8"),
+  ) as TestKeyJwk;
+}
+
+async function importTestPublicKey(jwk: TestKeyJwk): Promise<CryptoKey> {
+  const { warning: _warning, d: _d, ...pub } = jwk;
+  return crypto.subtle.importKey(
+    "jwk",
+    { ...pub, key_ops: ["verify"] },
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["verify"],
+  );
+}
+
+describe("grantLeafInputs — COSE branch (synthetic, honestly-signed fixture)", () => {
+  it("the committed grant.cose signature verifies under the committed test key", async () => {
+    const coseBytes = readGrantCoseFixture();
+    const jwk = readTestKeyJwk();
+    expect(jwk.warning).toMatch(/TEST ONLY/);
+    const publicKey = await importTestPublicKey(jwk);
+    const ok = await verifyCoseSign1(coseBytes, publicKey);
+    expect(ok).toBe(true);
+  });
+
+  it("without entryId, derives idtimestampBe8 from the embedded header and the same inner as the raw grant", async () => {
+    const cose = readGrantCoseFixture();
+    const fromCose = await grantLeafInputs(cose);
+    expect(fromCose.idtimestampBe8).toEqual(
+      fromHex(GOLDEN_MANIFEST.idtimestampBe8Hex),
+    );
+
+    const fromRaw = await grantLeafInputs(
+      goldenCommittedGrant(),
+      goldenEntryId(),
+    );
+    expect(fromCose.inner).toEqual(fromRaw.inner);
+  });
+
+  it("with an entryId whose idtimestamp differs, the entryId wins (mirrors the verifier)", async () => {
+    const cose = readGrantCoseFixture();
+    const differentEntryId = "03030303030303030000000000000001";
+    const { idtimestampBe8 } = await grantLeafInputs(cose, differentEntryId);
+    expect(idtimestampBe8).toEqual(fromHex("0303030303030303"));
+    expect(idtimestampBe8).not.toEqual(
+      fromHex(GOLDEN_MANIFEST.idtimestampBe8Hex),
+    );
+  });
+
+  it("cross-check against the verifier: verifyGrantReceipt passes with committedGrant: grantCose and no entryId, fails when the peak is tampered", async () => {
+    const receipt = RECEIPT();
+    const committedGrant = readGrantCoseFixture();
+
+    const { idtimestampBe8, inner } = await grantLeafInputs(committedGrant);
+    const { peak, leafIndex } = await recomputeReceiptPeak({
+      receiptCbor: receipt,
+      idtimestampBe8,
+      inner,
+    });
+
+    const trust: TrustRoot = {
+      root: "known-accumulator",
+      accumulator: knownAccumulatorSnapshot(peak, leafIndex),
+    };
+    const ok = await verifyGrantReceipt({
+      receipt,
+      committedGrant,
+      trust,
+    });
+    expect(ok.ok).toBe(true);
+
+    const tamperedPeak = new Uint8Array(peak);
+    const lastIndex = tamperedPeak.length - 1;
+    tamperedPeak[lastIndex] = (tamperedPeak[lastIndex] ?? 0) ^ 0xff;
+    const tamperedTrust: TrustRoot = {
+      root: "known-accumulator",
+      accumulator: knownAccumulatorSnapshot(tamperedPeak, leafIndex),
+    };
+    const bad = await verifyGrantReceipt({
+      receipt,
+      committedGrant,
+      trust: tamperedTrust,
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.reason).toBe("peak_not_in_known_accumulator");
+  });
+
+  it("a copy with one byte of the embedded grant changed is refused by both the COSE decoder and the raw fallback (undecodable)", async () => {
+    const coseBytes = readGrantCoseFixture();
+    const decoded = decodeCoseSign1(coseBytes);
+    if (!decoded) throw new Error("test setup: grant.cose failed to decode");
+    const unprotected = decoded.unprotected as Map<number, unknown>;
+    const embedded = unprotected.get(HEADER_FORESTRIE_GRANT_V0);
+    if (!(embedded instanceof Uint8Array)) {
+      throw new Error("test setup: embedded grant CBOR missing");
+    }
+    const tamperedEmbedded = new Uint8Array(embedded);
+    const lastIndex = tamperedEmbedded.length - 1;
+    tamperedEmbedded[lastIndex] = (tamperedEmbedded[lastIndex] ?? 0) ^ 0xff;
+
+    const tamperedUnprotected = new Map(unprotected);
+    tamperedUnprotected.set(HEADER_FORESTRIE_GRANT_V0, tamperedEmbedded);
+    // The digest in the payload no longer matches the (tampered) embedded
+    // grant, so decodeForestrieGrantCose rejects it; the tampered bytes
+    // are not a valid raw grant payload either, so the fallback also
+    // rejects it — both fail, mirroring GrantLeafInputError's contract.
+    const tampered = encodeCoseSign1Raw(
+      decoded.protectedBstr,
+      tamperedUnprotected,
+      decoded.payloadBstr,
+      decoded.signature,
+    );
+
+    let caught: unknown;
+    try {
+      await grantLeafInputs(tampered);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(GrantLeafInputError);
+    expect((caught as GrantLeafInputError).kind).toBe("undecodable");
+  });
+
+  it("drift: regenerating into a temp dir with the committed test key reproduces the protected header, unprotected header and payload, and the regenerated signature verifies", async () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), "mcp-resolve-grant-cose-"));
+    try {
+      const committedKeyBytes = readFileSync(`${GRANT_COSE_DIR}test-key.json`);
+      writeFileSync(path.join(tmp, "test-key.json"), committedKeyBytes);
+
+      const regenerated = await generate(tmp);
+
+      const committedCose = readGrantCoseFixture();
+      const committedDecoded = decodeCoseSign1(committedCose);
+      if (!committedDecoded) {
+        throw new Error("test setup: committed grant.cose failed to decode");
+      }
+      const regeneratedDecoded = decodeCoseSign1(regenerated.coseBytes);
+      if (!regeneratedDecoded) {
+        throw new Error("regenerated grant.cose failed to decode");
+      }
+
+      expect(Buffer.from(regeneratedDecoded.protectedBstr)).toEqual(
+        Buffer.from(committedDecoded.protectedBstr),
+      );
+      expect(Buffer.from(regeneratedDecoded.payloadBstr)).toEqual(
+        Buffer.from(committedDecoded.payloadBstr),
+      );
+      const committedUnprotected = committedDecoded.unprotected as Map<
+        number,
+        unknown
+      >;
+      const regeneratedUnprotected = regeneratedDecoded.unprotected as Map<
+        number,
+        unknown
+      >;
+      for (const label of [HEADER_FORESTRIE_GRANT_V0, HEADER_IDTIMESTAMP]) {
+        const committedValue = committedUnprotected.get(label);
+        const regeneratedValue = regeneratedUnprotected.get(label);
+        expect(committedValue).toBeInstanceOf(Uint8Array);
+        expect(regeneratedValue).toBeInstanceOf(Uint8Array);
+        expect(Buffer.from(regeneratedValue as Uint8Array)).toEqual(
+          Buffer.from(committedValue as Uint8Array),
+        );
+      }
+
+      // Signature bytes are NOT compared — ES256 signing is randomized, so
+      // a fresh regeneration signs different signature bytes over the same
+      // Sig_structure. Instead, the regenerated signature must itself
+      // verify under the same (committed, reused) test key.
+      const jwk = readTestKeyJwk();
+      const publicKey = await importTestPublicKey(jwk);
+      const ok = await verifyCoseSign1(regenerated.coseBytes, publicKey);
+      expect(ok).toBe(true);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
