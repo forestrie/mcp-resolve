@@ -70,11 +70,12 @@
     "format:check": "prettier --check .",
     "check:browser-safe": "node tools/check-browser-safe.mjs",
     "check:encoding-single-copy": "node scripts/check-encoding-single-copy.mjs",
+    "check:reverse-dependency": "node scripts/check-reverse-dependency.mjs",
     "check:server-json": "node scripts/assert-server-json.mjs",
     "check:stdio-clean": "node scripts/check-stdio-clean.mjs",
     "test:unit": "vitest run --project unit",
     "test:live": "vitest run --project live",
-    "test": "pnpm run check:browser-safe && pnpm run check:encoding-single-copy && pnpm run check:server-json && vitest run --project unit",
+    "test": "pnpm run check:browser-safe && pnpm run check:encoding-single-copy && pnpm run check:reverse-dependency && pnpm run check:server-json && vitest run --project unit",
     "test:watch": "vitest --project unit",
     "prepack": "pnpm run build",
     "publish:dry-run": "pnpm pack && npm publish --dry-run --tag dryrun ./forestrie-mcp-resolve-*.tgz"

@@ -44,11 +44,19 @@ All CI-blocking, checked before every merge:
    `@forestrie/*` wire package this repo pins (`encoding`, `scrapi-client`,
    `receipt-verify`, `chain-rpc`, `mcp-verify`) in the tree, run on the repo
    and on a scratch `npm i` of the packed tarball.
-4. **`check:stdio-clean`** — the real bin writes exactly one `initialize`
+4. **`check:reverse-dependency`** (F5, plan-2609-06 3.1) — `@forestrie/mcp-verify`
+   must never depend back on `@forestrie/mcp-resolve`: walks the repo's own
+   `node_modules/@forestrie/mcp-verify` for a nested `@forestrie/mcp-resolve`,
+   and separately does a scratch `npm i @forestrie/mcp-verify@<pin>` and
+   checks that tree too (`npm ls @forestrie/mcp-resolve` plus the same
+   filesystem walk) — npm's flat resolver is what an `npm i`/`npx` user of
+   mcp-verify actually gets, not pnpm's isolated store. Fails closed (never
+   silently passes) if the scratch install itself cannot run, e.g. offline.
+5. **`check:stdio-clean`** — the real bin writes exactly one `initialize`
    response to stdout and nothing else.
-5. **`check:server-json`** — `server.json` validates against the registry
+6. **`check:server-json`** — `server.json` validates against the registry
    schema and matches `package.json#mcpName` and `#version`.
-6. **Recorded-exchange fixtures, frozen** (phase 2 onward) — live lane
+7. **Recorded-exchange fixtures, frozen** (phase 2 onward) — live lane
    responses are captured once by a runner into `test/fixtures/lane-a/` with
    a `PROVENANCE.md` and a sha256 manifest; unit tests replay them. The
    `live` vitest project (`vitest --project live`) is opt-in by
@@ -154,7 +162,7 @@ tests and code; do not rephrase them.
 ## Tests
 
 ```
-pnpm test              # check:browser-safe && check:encoding-single-copy && check:server-json && unit
+pnpm test              # check:browser-safe && check:encoding-single-copy && check:reverse-dependency && check:server-json && unit
 pnpm test:unit          # vitest --project unit
 pnpm test:live          # vitest --project live (opt-in, FORESTRIE_LIVE=1, never required — N8)
 pnpm typecheck
