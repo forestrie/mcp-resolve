@@ -36,6 +36,10 @@ tool returns the bytes and the verifier's decoding so an agent can read
 what it fetched, and leaves the verifying to `verify_fetched_receipt` or to
 the verifier directly.
 
+It also reports `receiptLogId`, the log the receipt's delegation
+certificate names. That id is read from the same bytes and is part of the
+operator's claim; it supports nothing on its own.
+
 ### `fetch_genesis` — `sealing`, as `known-log-key`, and only with the copy kept
 
 > keep this copy; a copy obtained at check time is not the genesis root as
@@ -170,16 +174,36 @@ pure core under a trust root the caller supplies as bytes, or under an
 accumulator read from the chain in the same call. The result is the
 verifier's result: `stages[]`, `questions`, `diagnostics[]`, `anchor`,
 `verifier`. This package adds nothing to `questions` and removes nothing.
-It appends two diagnostics of its own:
+It appends diagnostics of its own:
 
 - `receipt_fetched_from_operator` — always: _the receipt bytes were fetched
   from the operator's API in this call_.
 - `root_read_from_chain` — when the chain path was taken: _the accumulator
   was read from the chain in this call, at the caller's RPC URL_.
+- `receipt_log_id_mismatch` — when the receipt's delegation certificate
+  names a different log from the one the call named: _the receipt's
+  delegation certificate names log <cert>, the call named <caller>_. The
+  call proceeds under the caller's log.
 
 The text summary is the verifier's own summary line, prefixed with where
 the bytes came from. `not_answered_by_this_root` is a real answer and
 reaches the caller unchanged.
+
+A receipt carries a delegation certificate that names a log, and a chain
+read under `known-accumulator` answers split-view for whichever log it is
+asked about. The receipt and its certificate both come from the operator.
+An operator keeping a private branch as a separate log, with its own
+delegation and published checkpoints, could hand out a receipt naming that
+branch, and a chain read under the certificate's id would answer
+split-view `ok` for a log the caller never registered with. The
+registrant's defence is that they know their own log id, from the
+registration URL. So the id the caller names, in `chain.logId` or in the
+receipt coordinates, is always the one read, and a certificate that
+disagrees is reported as `receipt_log_id_mismatch`: the mismatch is the
+finding. Only when the caller names no log, as with a receipt handed over
+by a third party, does the call use the certificate's id, and
+`provenance.logId.source` then says `receipt-delegation-certificate`, so
+the answer reads as split-view for the log the operator named.
 
 ## Why the roots are not ranked here
 

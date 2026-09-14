@@ -35,6 +35,7 @@ import {
   FOREST_GENESIS_SCHEMA_V2,
   SUPPORTS,
   genesisUrl,
+  logStateCalldata,
   type FetchedVerifyResult,
   type Provenance,
   type Supports,
@@ -174,6 +175,61 @@ function requestUrl(input: string | URL | Request): string {
  *  in this file uses) — `createServer` takes a single `fetchImpl`, so the
  *  composed chain path is served through it. */
 function combineFetch(laneA: LaneAReplay, chain: ChainReplay): typeof fetch {
+  return (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ): Promise<Response> => {
+    if (requestUrl(input) === RPC_URL) return chain.fetch(input, init);
+    return laneA.fetch(input, init);
+  }) as unknown as typeof fetch;
+}
+
+/** F3 (plan-2609-06 2.2): a chain fake that answers `eth_chainId` /
+ *  `eth_getBlockByNumber` / `eth_call` by method name alone, from the same
+ *  recorded `logState.46770471.json` fixture `createChainReplay` uses —
+ *  but without that helper's strict params check, so a mismatch test can
+ *  send a caller log id deliberately different from the one the fixture
+ *  was captured for and still get a valid three-call read back (the
+ *  canned response bytes don't depend on which log id was asked). Used
+ *  only to prove the chain read goes out under the caller's id; never for
+ *  a test that depends on the verifier's answer. */
+function createLenientChainReplay(): {
+  fetch: typeof fetch;
+  calls: ReplayCall[];
+} {
+  const fixture = JSON.parse(
+    readFileSync(
+      path.join(HERE, "..", "fixtures", "chain", "logState.46770471.json"),
+      "utf8",
+    ),
+  ) as { calls: Record<string, { status: number; response: unknown }> };
+  const calls: ReplayCall[] = [];
+  const fetchImpl = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    calls.push({ url: requestUrl(input), init });
+    const bodyText =
+      typeof init?.body === "string" ? init.body : String(init?.body ?? "");
+    const method = (JSON.parse(bodyText) as { method?: unknown }).method;
+    if (typeof method !== "string" || fixture.calls[method] === undefined) {
+      throw new Error(`no lenient chain fixture for method ${String(method)}`);
+    }
+    const recorded = fixture.calls[method];
+    return new Response(JSON.stringify(recorded.response), {
+      status: recorded.status,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+  return { fetch: fetchImpl, calls };
+}
+
+/** As `combineFetch`, but the RPC side is a `createLenientChainReplay()`
+ *  fake rather than a `ChainReplay`. */
+function combineFetchLenient(
+  laneA: LaneAReplay,
+  chain: { fetch: typeof fetch; calls: ReplayCall[] },
+): typeof fetch {
   return (async (
     input: Parameters<typeof fetch>[0],
     init?: Parameters<typeof fetch>[1],
@@ -598,12 +654,16 @@ describe("fetch_receipt", () => {
     const structured = result.structuredContent as {
       receipt: { sha256: string; byteLength: number };
       decoded: { inclusion: { mmrIndex: string } };
+      receiptLogId: string;
       provenance: Provenance;
       supports: Supports;
     };
     expect(structured.receipt.sha256).toBe(RECEIPT_SHA256);
     expect(structured.receipt.byteLength).toBe(RECEIPT_BYTE_LENGTH);
     expect(structured.decoded.inclusion.mmrIndex).toBe("8");
+    // F3 (plan-2609-06 2.4): the log id lane-A's receipt's own delegation
+    // certificate names — report only, no default logic here.
+    expect(structured.receiptLogId).toBe(PUBLICATIONS_LOG_ID);
     expect(structured.provenance.source).toBe("fetched");
     assertIsoString(structured.provenance.at);
     expect(structured.supports).toEqual(SUPPORTS.fetch_receipt);
@@ -1262,7 +1322,11 @@ describe("fetch_checkpoint_history", () => {
 /* ----------------------------- verify_fetched_receipt ---------------------- */
 
 type VerifyStructured = FetchedVerifyResult & {
-  provenance: { receipt: Provenance; root: Provenance };
+  provenance: {
+    receipt: Provenance;
+    root: Provenance;
+    logId?: { source: string; value: string };
+  };
   supports: Supports;
 };
 
@@ -1721,5 +1785,222 @@ describe("verify_fetched_receipt", () => {
       problem: { code: string };
     };
     expect(structured.problem.code).toBe("network");
+  });
+
+  /* ---- plan-2609-06 2.2/F3: the receipt delegation-certificate log id ---- */
+
+  describe("F3: the receipt's delegation-certificate log id", () => {
+    /** A different, but equally well-formed, log id from lane-A's own
+     *  (`PUBLICATIONS_LOG_ID`) — lane-A's receipt's delegation certificate
+     *  always names `PUBLICATIONS_LOG_ID` (runner 2.1 facts), so any other
+     *  id here is, by construction, a mismatch. */
+    const DIFFERENT_LOG_ID = BOOTSTRAP_LOG_ID;
+
+    it("a matching chain.logId: no mismatch diagnostic, provenance.logId.source caller", async () => {
+      const laneA = await createLaneAReplay();
+      const chain = await createChainReplay();
+      const result = await withClient(
+        { fetchImpl: combineFetch(laneA, chain), env: {} },
+        (client) =>
+          client.callTool({
+            name: "verify_fetched_receipt",
+            arguments: {
+              receiptUrl: laneA.urls["receipt-self"],
+              entryId: ENTRY_ID,
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              trust: {
+                root: "known-accumulator",
+                chain: {
+                  rpcUrl: RPC_URL,
+                  univocity: UNIVOCITY,
+                  logId: PUBLICATIONS_LOG_ID,
+                  chainId: CHAIN_ID,
+                },
+              },
+            },
+          }),
+      );
+
+      expect(result.isError).toBe(false);
+      const structured = result.structuredContent as VerifyStructured;
+      expect(structured.diagnostics.map((d) => d.code)).not.toContain(
+        "receipt_log_id_mismatch",
+      );
+      expect(structured.provenance.logId).toEqual({
+        source: "caller",
+        value: PUBLICATIONS_LOG_ID,
+      });
+    });
+
+    it("a differing chain.logId: adds receipt_log_id_mismatch with the exact message, and the chain read uses the caller's id", async () => {
+      const laneA = await createLaneAReplay();
+      const chain = createLenientChainReplay();
+      const result = await withClient(
+        { fetchImpl: combineFetchLenient(laneA, chain), env: {} },
+        (client) =>
+          client.callTool({
+            name: "verify_fetched_receipt",
+            arguments: {
+              receiptUrl: laneA.urls["receipt-self"],
+              entryId: ENTRY_ID,
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              trust: {
+                root: "known-accumulator",
+                chain: {
+                  rpcUrl: RPC_URL,
+                  univocity: UNIVOCITY,
+                  logId: DIFFERENT_LOG_ID,
+                  chainId: CHAIN_ID,
+                },
+              },
+            },
+          }),
+      );
+
+      expect(result.isError).toBe(false);
+      const structured = result.structuredContent as VerifyStructured;
+      expect(structured.diagnostics).toContainEqual({
+        code: "receipt_log_id_mismatch",
+        message: `the receipt's delegation certificate names log ${PUBLICATIONS_LOG_ID}, the call named ${DIFFERENT_LOG_ID}`,
+      });
+      expect(structured.provenance.logId).toEqual({
+        source: "caller",
+        value: DIFFERENT_LOG_ID,
+      });
+
+      // The chain read itself (the third, eth_call, request) used the
+      // CALLER's differing id, not the certificate's.
+      const ethCall = chain.calls.find((c) => {
+        const body = typeof c.init?.body === "string" ? c.init.body : "{}";
+        return (
+          (JSON.parse(body) as { method?: unknown }).method === "eth_call"
+        );
+      });
+      expect(ethCall).toBeDefined();
+      const params = (
+        JSON.parse(ethCall!.init!.body as string) as {
+          params: [{ data: string }];
+        }
+      ).params;
+      expect(params[0].data).toBe(logStateCalldata(DIFFERENT_LOG_ID));
+    });
+
+    it("a receiptUrl call with chain.logId omitted: uses the certificate's id, provenance.logId source receipt-delegation-certificate", async () => {
+      const laneA = await createLaneAReplay();
+      const chain = await createChainReplay();
+      const result = await withClient(
+        { fetchImpl: combineFetch(laneA, chain), env: {} },
+        (client) =>
+          client.callTool({
+            name: "verify_fetched_receipt",
+            arguments: {
+              receiptUrl: laneA.urls["receipt-self"],
+              entryId: ENTRY_ID,
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              trust: {
+                root: "known-accumulator",
+                chain: {
+                  rpcUrl: RPC_URL,
+                  univocity: UNIVOCITY,
+                  chainId: CHAIN_ID,
+                },
+              },
+            },
+          }),
+      );
+
+      expect(result.isError).toBe(false);
+      const structured = result.structuredContent as VerifyStructured;
+      expect(structured.diagnostics.map((d) => d.code)).not.toContain(
+        "receipt_log_id_mismatch",
+      );
+      expect(structured.provenance.logId).toEqual({
+        source: "receipt-delegation-certificate",
+        value: PUBLICATIONS_LOG_ID,
+      });
+      expect(chain.calls).toHaveLength(3);
+    });
+
+    it("no caller id and a receipt without the certificate: missing_input, zero chain requests", async () => {
+      const noCertReceiptUrl = `${BASE_URL}/anything/no-cert-receipt`;
+      const noCertReceiptBytes = encodeCborDeterministic([
+        encodeCborDeterministic(new Map()),
+        new Map([[396, new Map()]]), // unprotected, no label 1000
+        null,
+        new Uint8Array(4),
+      ]);
+      const fetchImpl = (async (
+        input: Parameters<typeof fetch>[0],
+      ): Promise<Response> => {
+        if (requestUrl(input) === noCertReceiptUrl) {
+          return new Response(noCertReceiptBytes as unknown as BodyInit, {
+            status: 200,
+            headers: { "content-type": "application/cbor" },
+          });
+        }
+        throw new Error(`unexpected request: ${requestUrl(input)}`);
+      }) as unknown as typeof fetch;
+
+      const result = await withClient({ fetchImpl, env: {} }, (client) =>
+        client.callTool({
+          name: "verify_fetched_receipt",
+          arguments: {
+            receiptUrl: noCertReceiptUrl,
+            entryId: ENTRY_ID,
+            payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+            trust: {
+              root: "known-accumulator",
+              chain: {
+                rpcUrl: RPC_URL,
+                univocity: UNIVOCITY,
+                chainId: CHAIN_ID,
+              },
+            },
+          },
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      const structured = result.structuredContent as {
+        problem: { code: string };
+      };
+      expect(structured.problem.code).toBe("missing_input");
+    });
+
+    it("coordinates carrying a logId and no chain.logId: the coordinates' id is the caller's", async () => {
+      const laneA = await createLaneAReplay();
+      const chain = await createChainReplay();
+      const result = await withClient(
+        { fetchImpl: combineFetch(laneA, chain), env: {} },
+        (client) =>
+          client.callTool({
+            name: "verify_fetched_receipt",
+            arguments: {
+              baseUrl: BASE_URL,
+              bootstrapLogId: BOOTSTRAP_LOG_ID,
+              logId: PUBLICATIONS_LOG_ID,
+              massifHeight: MASSIF_HEIGHT,
+              entryId: ENTRY_ID,
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              trust: {
+                root: "known-accumulator",
+                chain: {
+                  rpcUrl: RPC_URL,
+                  univocity: UNIVOCITY,
+                  chainId: CHAIN_ID,
+                },
+              },
+            },
+          }),
+      );
+
+      expect(result.isError).toBe(false);
+      const structured = result.structuredContent as VerifyStructured;
+      expect(structured.provenance.logId).toEqual({
+        source: "caller",
+        value: PUBLICATIONS_LOG_ID,
+      });
+      expect(chain.calls).toHaveLength(3);
+    });
   });
 });

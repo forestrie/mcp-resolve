@@ -69,10 +69,17 @@ export type {
   ProvenanceSource,
   Provenance,
   HistoryProvenance,
+  LogIdProvenance,
   SupportsRow,
   Supports,
   ToolName,
 } from "./provenance.js";
+
+export {
+  RECEIPT_DELEGATION_CERTIFICATE_LABEL,
+  RECEIPT_DELEGATION_CERTIFICATE_LOG_ID_CLAIM,
+  decodeReceiptLogId,
+} from "./receipt-log-id.js";
 
 export {
   verifyFetched,

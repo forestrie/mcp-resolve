@@ -36,6 +36,18 @@ export type Provenance = {
   history?: HistoryProvenance;
 };
 
+/** F3 (plan-2609-06 2.2): `verify_fetched_receipt`'s top-level
+ *  `provenance.logId`, present whenever a chain read happens — which log
+ *  id was used to make it. `"caller"` when the caller supplied one
+ *  (`trust.chain.logId`, or else the receipt coordinates' `logId`);
+ *  `"receipt-delegation-certificate"` when the caller supplied neither
+ *  and the id came from the receipt's own delegation certificate instead
+ *  (decision F3). */
+export type LogIdProvenance = {
+  source: "caller" | "receipt-delegation-certificate";
+  value: string;
+};
+
 export type SupportsRow = { question: QuestionName; root: RootName };
 
 export type Supports = { rows: SupportsRow[]; note: string };
@@ -91,15 +103,20 @@ export const SUPPORTS: Record<ToolName, Supports> = {
   },
 };
 
-/** Appended to the verifier's own diagnostics by `compose.ts`'s
- *  `verifyFetched` — always `receipt_fetched_from_operator`;
+/** Appended to the verifier's own diagnostics — the first three by
+ *  `compose.ts`'s `verifyFetched`: always `receipt_fetched_from_operator`;
  *  `root_read_from_chain` when the root came from a chain read (the
  *  latest `logState`, or a checkpoint selected from history); and
  *  `root_read_from_chain_history` (plan-2609-06 F1) additionally when that
  *  chain read walked published `CheckpointPublished` history rather than
- *  reading `logState` directly. */
+ *  reading `logState` directly. `receipt_log_id_mismatch` (F3, 2.2) is
+ *  different: `src/node/tools.ts`'s `verify_fetched_receipt` appends it
+ *  directly, not `compose.ts`, when the caller named a log id and the
+ *  receipt's own delegation certificate names a different one — the call
+ *  still reads the caller's log; the mismatch is the finding. */
 export const COURIER_DIAGNOSTIC_CODES = [
   "receipt_fetched_from_operator",
   "root_read_from_chain",
   "root_read_from_chain_history",
+  "receipt_log_id_mismatch",
 ] as const;
