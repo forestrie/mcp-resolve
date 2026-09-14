@@ -55,6 +55,19 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LANE_A_DIR = path.join(HERE, "..", "fixtures", "lane-a");
 const SYNTHETIC_DIR = path.join(HERE, "..", "fixtures", "synthetic");
+/**
+ * The INSTALLED `@forestrie/mcp-verify`'s own `fixtures/self/` —
+ * regenerated at every mcp-verify release (a fresh entry id, statement and
+ * receipt each time; confirmed identical only for `log-key.xy.b64` across
+ * 0.4.0 and 0.4.1). Never a source for anything that must pair with
+ * `ENTRY_ID`, `SELF_CONTENT_HASH` or `LANE_A_RECEIPT_PATH` — those are
+ * pinned to mcp-verify 0.4.0's self-registration, and the vendored copies
+ * in `test/fixtures/lane-a/` (`STATEMENT_COSE_PATH`, `LOG_KEY_PATH`) are
+ * the ones that pair with them. The one legitimate use left is the
+ * "bundled fixture verifies under its own bundle" check below, which reads
+ * its entry id, statement AND receipt all from this same directory — never
+ * mixed with the pinned/vendored constants.
+ */
 const VERIFY_FIXTURES_DIR = path.join(
   HERE,
   "..",
@@ -112,9 +125,24 @@ function utf8OfFile(filePath: string): string {
   return readFileSync(filePath, "utf8").trim();
 }
 
-const STATEMENT_COSE_PATH = path.join(VERIFY_FIXTURES_DIR, "statement.cose");
-const LOG_KEY_PATH = path.join(VERIFY_FIXTURES_DIR, "log-key.xy.b64");
+/** Vendored byte-for-byte from the published mcp-verify 0.4.0 tarball's
+ *  `fixtures/self/` (test/fixtures/lane-a/PROVENANCE.md) — the pair that
+ *  actually matches `ENTRY_ID`/`SELF_CONTENT_HASH`/`LANE_A_RECEIPT_PATH`,
+ *  unlike whatever mcp-verify happens to have installed. */
+const STATEMENT_COSE_PATH = path.join(LANE_A_DIR, "statement.cose");
+const LOG_KEY_PATH = path.join(LANE_A_DIR, "log-key.xy.b64");
+/** The INSTALLED bundle's own receipt — used only by the "bundled fixture
+ *  verifies under its own bundle" check, alongside `BUNDLED_STATEMENT_COSE_PATH`
+ *  and `BUNDLED_ENTRY_ID` (read from the same installed `fixtures/self/`),
+ *  never alongside the pinned/vendored constants above. */
 const BUNDLED_RECEIPT_PATH = path.join(VERIFY_FIXTURES_DIR, "receipt.cbor");
+const BUNDLED_STATEMENT_COSE_PATH = path.join(
+  VERIFY_FIXTURES_DIR,
+  "statement.cose",
+);
+const BUNDLED_ENTRY_ID = utf8OfFile(
+  path.join(VERIFY_FIXTURES_DIR, "entry-id.txt"),
+);
 const LANE_A_GENESIS_PATH = path.join(LANE_A_DIR, "genesis.cbor");
 const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
 /** The synthetic buried-peak fixture's fabricated "latest" `logState`
@@ -1308,16 +1336,26 @@ describe("verify_fetched_receipt", () => {
       direct.diagnostics,
     );
 
-    // Amendment A: the receipt lane A serves differs from the verifier's
-    // bundled fixtures/self/receipt.cbor only in the last 64 (COSE
-    // signature) bytes; the bundled copy verifies to the same questions.
+    // The INSTALLED mcp-verify's own bundled fixtures/self/ is a fresh
+    // self-registration every release — a different entry id, statement
+    // and receipt each time (only log-key.xy.b64 has stayed byte-identical
+    // across 0.4.0 and 0.4.1) — so it no longer pairs with ENTRY_ID or the
+    // vendored STATEMENT_COSE_PATH the way it did when Amendment A was
+    // written against 0.4.0. This check reads its entry id, statement and
+    // receipt all from that same installed bundle instead, and asserts
+    // only that the bundle verifies under its own terms (sealing and
+    // attribution ok, under the log key both fixture generations share) —
+    // not that it reproduces lane-A's specific questions, which was a
+    // coincidence of 0.4.0's fixture pairing, not a general guarantee.
     const bundledDirect = await verifyReceipt({
       receipt: new Uint8Array(readFileSync(BUNDLED_RECEIPT_PATH)),
-      payload: new Uint8Array(readFileSync(STATEMENT_COSE_PATH)),
-      entryId: ENTRY_ID,
+      payload: new Uint8Array(readFileSync(BUNDLED_STATEMENT_COSE_PATH)),
+      entryId: BUNDLED_ENTRY_ID,
       trust,
     });
-    expect(bundledDirect.questions).toEqual(direct.questions);
+    expect(bundledDirect.ok).toBe(true);
+    expect(bundledDirect.questions["sealing"]?.status).toBe("ok");
+    expect(bundledDirect.questions["attribution"]?.status).toBe("ok");
   });
 
   it("known-accumulator, explicit chain: four requests, both courier diagnostics, split-view ok, binding explicit", async () => {

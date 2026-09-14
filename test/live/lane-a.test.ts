@@ -31,19 +31,20 @@ import type {
 } from "../../src/core/index.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const VERIFY_FIXTURES_DIR = path.join(
-  HERE,
-  "..",
-  "..",
-  "node_modules",
-  "@forestrie",
-  "mcp-verify",
-  "fixtures",
-  "self",
-);
-const BUNDLED_RECEIPT_PATH = path.join(VERIFY_FIXTURES_DIR, "receipt.cbor");
-const STATEMENT_COSE_PATH = path.join(VERIFY_FIXTURES_DIR, "statement.cose");
-const LOG_KEY_PATH = path.join(VERIFY_FIXTURES_DIR, "log-key.xy.b64");
+const LANE_A_DIR = path.join(HERE, "..", "fixtures", "lane-a");
+/**
+ * Vendored byte-for-byte from the published mcp-verify 0.4.0 tarball's
+ * `fixtures/self/` (test/fixtures/lane-a/PROVENANCE.md) — the pair that
+ * actually matches `ENTRY_ID` below (mcp-verify 0.4.0's self-registration,
+ * which is what this file's live fetches read back). NOT the installed
+ * mcp-verify's own `fixtures/self/`: that is regenerated at every release
+ * (a fresh entry id, statement and receipt each time), so pairing it with
+ * this file's pinned `ENTRY_ID` broke the moment mcp-verify moved past
+ * 0.4.0.
+ */
+const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
+const STATEMENT_COSE_PATH = path.join(LANE_A_DIR, "statement.cose");
+const LOG_KEY_PATH = path.join(LANE_A_DIR, "log-key.xy.b64");
 
 const BOOTSTRAP_LOG_ID = "67876864-3b46-67ae-dcb3-13cc81624aa5";
 const PUBLICATIONS_LOG_ID = "e8345800-a747-4e62-9409-61622b836f1f";
@@ -144,7 +145,7 @@ describe.skipIf(!FORESTRIE_LIVE)(
           receipt: { base64: string };
         };
         const fetchedBytes = Buffer.from(structured.receipt.base64, "base64");
-        const bundledBytes = readFileSync(BUNDLED_RECEIPT_PATH);
+        const bundledBytes = readFileSync(LANE_A_RECEIPT_PATH);
 
         // Amendment A: the operator signs afresh on every serve (ECDSA is
         // randomised), so the two copies are byte-identical everywhere
@@ -215,7 +216,7 @@ describe.skipIf(!FORESTRIE_LIVE)(
         // reach, so the bundled receipt is "the same bytes" for this
         // comparison's purposes.
         const direct = await verifyReceipt({
-          receipt: new Uint8Array(readFileSync(BUNDLED_RECEIPT_PATH)),
+          receipt: new Uint8Array(readFileSync(LANE_A_RECEIPT_PATH)),
           payload: new Uint8Array(readFileSync(STATEMENT_COSE_PATH)),
           entryId: ENTRY_ID,
           trust: {
