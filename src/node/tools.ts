@@ -25,9 +25,11 @@ import {
 import {
   EndpointError,
   GenesisBindingError,
+  GrantLeafInputError,
   SUPPORTS,
   classify,
   decodeChainBindingFromGenesis,
+  grantLeafInputs,
   isPeakNotInKnownAccumulator,
   peakHeldIn,
   recomputePeakForReceipt,
@@ -123,10 +125,9 @@ const HistoryInputSchema = z
  *  inputs the verifier needs to recompute a receipt's peak — the same
  *  meaning as `verify_fetched_receipt`'s `payload`/`entryId`/`grant`, just
  *  nested under one object since `fetch_accumulator` has no other use for
- *  them. `grant: true` is accepted at the schema level (the wire shape
- *  matches `verify_fetched_receipt`) but refused at the handler
- *  (`unsupported_input`) — see `src/core/compose.ts`'s
- *  `recomputePeakForReceipt`. */
+ *  them. `grant: true` derives the leaf inputs via `../core/grant-leaf.js`'s
+ *  `grantLeafInputs` — see `handleFetchAccumulator` for the
+ *  `GrantLeafInputError` mapping. */
 const ForReceiptInputSchema = z
   .object({
     receipt: BytesInputSchema.describe("the receipt bytes"),
@@ -1038,22 +1039,66 @@ async function handleFetchAccumulator(
     resolved.value;
 
   // forReceipt's leaf inputs are validated before any JSON-RPC call
-  // (F1/1.5.10): grant receipts are unsupported here (no exported way to
-  // derive the grant leaf without reimplementing the verifier's private
-  // COSE-vs-raw-grant dispatch — see recomputePeakForReceipt), and a
-  // payload receipt needs both payload and entryId to recompute its peak.
+  // (F1/1.5.10; grant support added 2026-09-14): a payload receipt needs
+  // both payload and entryId to recompute its peak; a grant receipt's
+  // leaf inputs are derived by `grantLeafInputs`
+  // (`../core/grant-leaf.js`), whose `GrantLeafInputError` is mapped to a
+  // problem here — both BEFORE the accumulator read, so either failure is
+  // zero-request, same as the payload case.
   let leafInput:
-    | { receiptBytes: Uint8Array; payloadBytes: Uint8Array; entryId: string }
+    | {
+        kind: "payload";
+        receiptBytes: Uint8Array;
+        payloadBytes: Uint8Array;
+        entryId: string;
+      }
+    | {
+        kind: "grant";
+        receiptBytes: Uint8Array;
+        idtimestampBe8: Uint8Array;
+        inner: Uint8Array;
+      }
     | undefined;
   if (args.forReceipt !== undefined) {
     if (args.forReceipt.grant === true) {
-      return problemResult("fetch_accumulator", {
-        code: "unsupported_input",
-        message:
-          "forReceipt with grant true is not supported by this version; verify_fetched_receipt handles grant receipts",
-      });
-    }
-    if (
+      if (args.forReceipt.payload === undefined) {
+        return problemResult("fetch_accumulator", {
+          code: "missing_input",
+          message:
+            "forReceipt needs payload and entryId (or grant true with the committed grant bytes) to recompute the receipt's peak",
+        });
+      }
+      const receiptBytes = resolveBytes(
+        args.forReceipt.receipt,
+        "forReceipt.receipt",
+      );
+      const committedGrantBytes = resolveBytes(
+        args.forReceipt.payload,
+        "forReceipt.payload",
+      );
+      try {
+        const { idtimestampBe8, inner } = await grantLeafInputs(
+          committedGrantBytes,
+          args.forReceipt.entryId,
+        );
+        leafInput = { kind: "grant", receiptBytes, idtimestampBe8, inner };
+      } catch (err) {
+        if (err instanceof GrantLeafInputError) {
+          if (err.kind === "missing_entry_id") {
+            return problemResult("fetch_accumulator", {
+              code: "missing_input",
+              message:
+                "forReceipt.payload is a raw grant payload, which carries no idtimestamp; supply entryId (a Forestrie-Grant COSE Sign1 carries its own)",
+            });
+          }
+          return problemResult("fetch_accumulator", {
+            code: "invalid_input",
+            message: `forReceipt.payload with grant true is neither a Forestrie-Grant COSE Sign1 nor a raw grant payload: ${err.detail}`,
+          });
+        }
+        throw err;
+      }
+    } else if (
       args.forReceipt.payload === undefined ||
       args.forReceipt.entryId === undefined
     ) {
@@ -1062,18 +1107,20 @@ async function handleFetchAccumulator(
         message:
           "forReceipt needs payload and entryId (or grant true with the committed grant bytes) to recompute the receipt's peak",
       });
+    } else {
+      leafInput = {
+        kind: "payload",
+        receiptBytes: resolveBytes(
+          args.forReceipt.receipt,
+          "forReceipt.receipt",
+        ),
+        payloadBytes: resolveBytes(
+          args.forReceipt.payload,
+          "forReceipt.payload",
+        ),
+        entryId: args.forReceipt.entryId,
+      };
     }
-    leafInput = {
-      receiptBytes: resolveBytes(
-        args.forReceipt.receipt,
-        "forReceipt.receipt",
-      ),
-      payloadBytes: resolveBytes(
-        args.forReceipt.payload,
-        "forReceipt.payload",
-      ),
-      entryId: args.forReceipt.entryId,
-    };
   }
 
   const result = await fetchAccumulatorSnapshot(
@@ -1107,11 +1154,21 @@ async function handleFetchAccumulator(
 
   let peak: Uint8Array;
   try {
-    peak = await recomputePeakForReceipt({
-      receipt: leafInput.receiptBytes,
-      payload: leafInput.payloadBytes,
-      entryId: leafInput.entryId,
-    });
+    peak = await recomputePeakForReceipt(
+      leafInput.kind === "payload"
+        ? {
+            kind: "payload",
+            receipt: leafInput.receiptBytes,
+            payload: leafInput.payloadBytes,
+            entryId: leafInput.entryId,
+          }
+        : {
+            kind: "grant",
+            receipt: leafInput.receiptBytes,
+            idtimestampBe8: leafInput.idtimestampBe8,
+            inner: leafInput.inner,
+          },
+    );
   } catch (err) {
     return problemResult("fetch_accumulator", {
       code: "receipt_malformed",

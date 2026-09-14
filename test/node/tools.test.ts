@@ -23,6 +23,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { verifyReceipt } from "@forestrie/mcp-verify";
 import { decodeKnownAccumulator } from "@forestrie/receipt-verify";
+import { encodeGrantPayloadV0Canonical } from "@forestrie/encoding";
 import { createServer, type Deps } from "../../src/node/server.js";
 import {
   COURIER_DIAGNOSTIC_CODES,
@@ -878,7 +879,62 @@ describe("fetch_accumulator", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("forReceipt with grant:true is unsupported_input, zero requests", async () => {
+  it("forReceipt with grant:true and a raw grant payload, no entryId, is missing_input, zero requests", async () => {
+    const calls: string[] = [];
+    const countingFetch = (async (
+      input: Parameters<typeof fetch>[0],
+    ): Promise<Response> => {
+      calls.push(requestUrl(input));
+      throw new Error("no request should have been made");
+    }) as unknown as typeof fetch;
+
+    // A raw Forestrie-Grant v0 payload (no COSE wrapping, so no embedded
+    // idtimestamp) — arbitrary field values, since the handler must reject
+    // this before ever touching the receipt or the chain.
+    const rawGrantPayload = encodeGrantPayloadV0Canonical({
+      logId: new Uint8Array(16),
+      ownerLogId: new Uint8Array(16),
+      grant: new Uint8Array(8),
+      maxHeight: 0,
+      minGrowth: 0,
+      grantData: new Uint8Array(64),
+    });
+
+    const result = await withClient(
+      { fetchImpl: countingFetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_accumulator",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+            forReceipt: {
+              receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+              payload: {
+                base64: Buffer.from(rawGrantPayload).toString("base64"),
+              },
+              grant: true,
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("missing_input");
+    expect(structured.problem.message).toBe(
+      "forReceipt.payload is a raw grant payload, which carries no idtimestamp; supply entryId (a Forestrie-Grant COSE Sign1 carries its own)",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("forReceipt with grant:true and undecodable payload bytes is invalid_input, zero requests", async () => {
     const calls: string[] = [];
     const countingFetch = (async (
       input: Parameters<typeof fetch>[0],
@@ -901,6 +957,10 @@ describe("fetch_accumulator", () => {
             },
             forReceipt: {
               receipt: { base64: base64OfFile(LANE_A_RECEIPT_PATH) },
+              // A plain COSE-signed statement — neither a Forestrie-Grant
+              // COSE Sign1 nor a raw grant payload CBOR map (same fixture,
+              // same "Grant payload must be a CBOR map" detail, as the
+              // verify_fetched_receipt grant:true test below).
               payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
               grant: true,
             },
@@ -912,12 +972,23 @@ describe("fetch_accumulator", () => {
     const structured = result.structuredContent as {
       problem: { code: string; message: string };
     };
-    expect(structured.problem.code).toBe("unsupported_input");
-    expect(structured.problem.message).toBe(
-      "forReceipt with grant true is not supported by this version; verify_fetched_receipt handles grant receipts",
-    );
+    expect(structured.problem.code).toBe("invalid_input");
+    expect(
+      structured.problem.message.startsWith(
+        "forReceipt.payload with grant true is neither a Forestrie-Grant COSE Sign1 nor a raw grant payload: ",
+      ),
+    ).toBe(true);
     expect(calls).toHaveLength(0);
   });
+
+  // The positive forReceipt+grant path (a grant receipt whose recomputed
+  // peak is checked against the accumulator, with a history fallback) is
+  // NOT re-tested here: `test/core/grant-leaf.test.ts` (a) cross-checks
+  // `grantLeafInputs`'s derivation against the verifier's own
+  // `verifyGrantReceipt`, and the plumbing from `leafInput` through
+  // `recomputePeakForReceipt`/`peakHeldIn` to the tool result is already
+  // covered end-to-end by the existing payload `forReceipt` tests above —
+  // the grant branch only changes where the leaf inputs come from.
 });
 
 /* ---------------------------- fetch_checkpoint_history ---------------------- */

@@ -148,27 +148,37 @@ async function payloadInnerHash(payload: Uint8Array): Promise<Uint8Array> {
 /**
  * `fetch_accumulator`'s `forReceipt` check (plan-2609-06 F1, amended
  * 2026-09-14): recompute the receipt's MMR peak from its real leaf inputs
- * — `entryId` (`@forestrie/receipt-verify`'s `entryIdHexToIdtimestampBe8`)
- * and the exact registered payload (`payloadInnerHash` above) — via the
- * verifier's own `recomputeReceiptPeak`. No verification arithmetic of its
- * own: the peak recompute and the leaf-input derivation are both the
- * verifier stack's, never reimplemented here.
- *
- * Grant receipts are NOT supported here: `@forestrie/mcp-verify`'s core
- * keeps its COSE-vs-raw-grant decode dispatch (`decodeCommittedGrant` in
- * `verify-grant-receipt.ts`) private, so there is no exported way to derive
- * a grant leaf's `inner` without reimplementing that dispatch. Callers
- * asking for `forReceipt` with a grant receipt get `problem {
- * code: "unsupported_input" }` in `src/node/tools.ts` before this is ever
- * called — a finding for a later plan, not silently worked around.
+ * via the verifier's own `recomputeReceiptPeak`. No verification
+ * arithmetic of its own: the peak recompute and the leaf-input derivation
+ * are both the verifier stack's, never reimplemented here. `kind:
+ * "payload"` derives `idtimestampBe8`/`inner` from `entryId`
+ * (`@forestrie/receipt-verify`'s `entryIdHexToIdtimestampBe8`) and the
+ * exact registered payload (`payloadInnerHash` above); `kind: "grant"`
+ * takes them already derived — see `grant-leaf.ts`'s `grantLeafInputs`,
+ * which mirrors the verifier's private COSE-vs-raw-grant decode dispatch.
  */
-export async function recomputePeakForReceipt(input: {
-  receipt: Uint8Array;
-  payload: Uint8Array;
-  entryId: string;
-}): Promise<Uint8Array> {
-  const idtimestampBe8 = entryIdHexToIdtimestampBe8(input.entryId);
-  const inner = await payloadInnerHash(input.payload);
+export async function recomputePeakForReceipt(
+  input:
+    | {
+        kind: "payload";
+        receipt: Uint8Array;
+        payload: Uint8Array;
+        entryId: string;
+      }
+    | {
+        kind: "grant";
+        receipt: Uint8Array;
+        idtimestampBe8: Uint8Array;
+        inner: Uint8Array;
+      },
+): Promise<Uint8Array> {
+  const { idtimestampBe8, inner } =
+    input.kind === "payload"
+      ? {
+          idtimestampBe8: entryIdHexToIdtimestampBe8(input.entryId),
+          inner: await payloadInnerHash(input.payload),
+        }
+      : { idtimestampBe8: input.idtimestampBe8, inner: input.inner };
   const { peak } = await recomputeReceiptPeak({
     receiptCbor: input.receipt,
     idtimestampBe8,

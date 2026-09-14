@@ -82,6 +82,8 @@ export {
 } from "./compose.js";
 export type { VerifyFetchedInput } from "./compose.js";
 
+export { GrantLeafInputError, grantLeafInputs } from "./grant-leaf.js";
+
 export {
   CHECKPOINT_PUBLISHED_TOPIC0,
   HistoryError,
