@@ -59,8 +59,12 @@ describe("readLogState", () => {
       replay.fixture.calls["eth_call"]!.request.params,
     );
     for (const call of replay.calls) {
+      // @forestrie/chain-rpc's `ethRpc` (plan-2609-06 F7) sends
+      // `Content-Type` (capital C), not this module's own prior
+      // `content-type` — a wire-equivalent, case-only difference; HTTP
+      // header names are case-insensitive.
       expect(call.init?.headers).toMatchObject({
-        "content-type": "application/json",
+        "Content-Type": "application/json",
       });
     }
   });
@@ -106,9 +110,14 @@ describe("readLogState", () => {
       { fetchImpl: replay.fetch },
     );
 
+    // No `status` here: @forestrie/chain-rpc's `ethRpc` (F7) only surfaces
+    // the plain `error.message` for a JSON-RPC-level error — it does not
+    // expose the underlying HTTP status on that path (chain.ts can only
+    // infer it was 2xx, since that branch is reached only once `res.ok`
+    // held) — see `callJsonRpc`'s docstring in src/net/chain.ts.
     expect(result).toEqual({
       kind: "problem",
-      problem: { code: "rpc_error", status: 200, message: "boom" },
+      problem: { code: "rpc_error", message: "boom" },
     });
     expect(replay.calls).toHaveLength(1);
   });
@@ -261,9 +270,36 @@ describe("readChainHead", () => {
       { fetchImpl: replay.fetch },
     );
 
+    // No `status` — see the matching note on readLogState's own
+    // "JSON-RPC error body" test above.
     expect(result).toEqual({
       kind: "problem",
-      problem: { code: "rpc_error", status: 200, message: "boom" },
+      problem: { code: "rpc_error", message: "boom" },
     });
+  });
+});
+
+describe("the chain path always goes through the injected fetchImpl (F7)", () => {
+  it("never touches globalThis.fetch, even when it throws (readLogState, via ethRpc)", async () => {
+    const replay = await createChainReplay();
+    const originalFetch = globalThis.fetch;
+    let globalFetchCalls = 0;
+    globalThis.fetch = (() => {
+      globalFetchCalls += 1;
+      throw new Error(
+        "globalThis.fetch must never be called directly by src/net/chain.ts",
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const result = await readLogState(
+        { rpcUrl: RPC_URL, univocity: UNIVOCITY, logId: LOG_ID },
+        { fetchImpl: replay.fetch },
+      );
+      expect(result.kind).toBe("ok");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(globalFetchCalls).toBe(0);
+    expect(replay.calls).toHaveLength(3);
   });
 });

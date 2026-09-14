@@ -3,48 +3,53 @@
  * builds. Each makes exactly one request — `redirect: "manual"`, so a 303
  * comes back as a 303 with its `Location` header rather than being
  * followed (the plan's one-request rule: a followed redirect is a second
- * request) — and returns the raw `{status, headers, body}` for
+ * request) — and returns the raw `{status, headers, body, at}` for
  * `src/core/classify.ts` to interpret. Never throws on a non-2xx status;
  * `NetError` is thrown only when no response was obtained at all
  * (plan-2609-05 step 2.3).
  *
- * This module does not call into `@forestrie/scrapi-client` for the GETs
- * themselves. Its two poll-once primitives each interpret the response and
- * discard the raw headers/body for every status but their one success
- * case, so neither can produce the uniform `RawResponse` this layer needs
- * for every status:
+ * `queryRegistration` and `fetchReceipt` go through `@forestrie/scrapi-client`
+ * 0.2.1's `queryRegistrationRaw` / `resolveReceiptRaw` (plan-2609-06 F7):
+ * unlike the 0.1.4 poll-once primitives this module used to have to avoid
+ * (each discarded headers/body for every status but its one success case —
+ * see plan-2609-06 F7's history for the old reasoning), the `*Raw`
+ * siblings return the uniform `{url, status, headers, body, at}` exchange
+ * for EVERY status, structurally identical to this module's own
+ * `RawResponse` (`./types.js`), so the mapping onto the classifier's view
+ * is the identity: no field renaming, no status narrowing. Neither
+ * function enforces a timeout or wraps a `fetchImpl` rejection on its own
+ * — `http.ts`'s `withNetErrors` is what still draws this package's
+ * `NetError`-only-when-no-response-at-all line for these two routes (see
+ * that file's docstring).
  *
- * - `resolveReceiptOnce` (`dist/resolve-receipt.js:8-28`,
- *   `dist/resolve-receipt.d.ts:26-33`) returns `headers` + `body` only for
- *   status 200; a 404 comes back as a bare `{status:"pending"}` and
- *   anything else as a bare `{status:"error", httpStatus}` — no body, no
- *   headers, so `toClassifyView`'s `content-type`/`location`/`retry-after`
- *   mapping would have nothing to read for those cases.
- * - `queryRegistrationOnce` (`dist/query-registration.js:23-62`,
- *   `dist/query-registration.d.ts:31-45`) never surfaces headers or body
- *   at all — it returns only the interpreted `{status, location |
- *   receiptUrl+entryIdHex | httpStatus+problem+detail}`.
- * - Neither `@forestrie/scrapi-client` 0.1.4 module exports a function for
- *   `.well-known/scitt-configuration` or `/api/forest/{logId}/genesis` at
- *   all (`dist/index.d.ts:9-17` lists only `register`,
- *   `query-registration`, `resolve-receipt` and `problem-details`).
+ * `fetchScittConfiguration` and `fetchGenesis` stay on `./http.js`'s own
+ * `rawGet`: `@forestrie/scrapi-client` 0.2.1's `dist/index.d.ts` exports no
+ * function for `.well-known/scitt-configuration` or
+ * `/api/forest/{logId}/genesis` at all (only `register`,
+ * `query-registration`, `resolve-receipt` and `problem-details`), so there
+ * is nothing to replace these two routes with.
  *
  * The primitives scrapi-client exports that classification actually needs
  * — `RECEIPT_LOCATION_RE`, `parseEntryIdFromReceiptLocation`,
  * `decodeProblemDetailsBytes`, `toAbsoluteScrapiUrl` — are already imported
- * directly by `src/core/classify.ts` (phase 1), so nothing scrapi-client
- * offers is left uncovered by going straight to `fetchImpl` here.
+ * directly by `src/core/classify.ts` (phase 1) and are unchanged in 0.2.1.
  */
+import {
+  queryRegistrationRaw,
+  resolveReceiptRaw,
+} from "@forestrie/scrapi-client";
 import {
   genesisUrl,
   receiptUrl,
   registrationStatusUrl,
   scittConfigurationUrl,
 } from "../core/index.js";
-import { rawGet } from "./http.js";
+import { DEFAULT_TIMEOUT_MS, rawGet, withNetErrors } from "./http.js";
 import type { FetchOptions, RawResponse } from "./types.js";
 
-/** `GET {baseUrl}/.well-known/scitt-configuration`. */
+/** `GET {baseUrl}/.well-known/scitt-configuration`. No scrapi-client
+ *  equivalent (see this file's docstring), so this route stays on
+ *  `rawGet`. */
 export async function fetchScittConfiguration(
   input: { baseUrl: string },
   opts?: FetchOptions,
@@ -56,7 +61,10 @@ export async function fetchScittConfiguration(
   );
 }
 
-/** `GET {baseUrl}/logs/{bootstrap}/{logId}/entries/{contentHash}`. */
+/** `GET {baseUrl}/logs/{bootstrap}/{logId}/entries/{contentHash}`, through
+ *  `@forestrie/scrapi-client`'s `queryRegistrationRaw` (F7): the same
+ *  one-request, `redirect: "manual"` GET this module always made, with the
+ *  same default `Accept: application/cbor`. */
 export async function queryRegistration(
   input: {
     baseUrl: string;
@@ -66,16 +74,17 @@ export async function queryRegistration(
   },
   opts?: FetchOptions,
 ): Promise<RawResponse> {
-  return rawGet(
-    registrationStatusUrl(
+  const fetchImpl = opts?.fetchImpl ?? globalThis.fetch;
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return queryRegistrationRaw({
+    statusUrl: registrationStatusUrl(
       input.baseUrl,
       input.bootstrapLogId,
       input.logId,
       input.contentHash,
     ),
-    opts,
-    "application/cbor",
-  );
+    fetchImpl: withNetErrors(fetchImpl, timeoutMs),
+  });
 }
 
 export type FetchReceiptInput =
@@ -91,7 +100,14 @@ export type FetchReceiptInput =
 /**
  * `GET {baseUrl}/logs/{bootstrap}/{logId}/{massifHeight}/entries/{entryId}/receipt`,
  * or a receipt URL already in hand (e.g. from `query_registration`'s
- * `receipt-location`).
+ * `receipt-location`), through `@forestrie/scrapi-client`'s
+ * `resolveReceiptRaw` (F7): the same one-request, `redirect: "manual"` GET
+ * this module always made. `resolveReceiptRaw` defaults `Accept` to
+ * `SCITT_RECEIPT_COSE_CONTENT_TYPE` (`application/scitt.receipt+cose`,
+ * plan-2609-07 decision L4) rather than this module's own prior
+ * `application/cbor` — no fixture or test in this package pins the
+ * request's `Accept` header, only the response's `content-type`, so this
+ * is the one deliberate wire-behaviour change F7 brings along.
  */
 export async function fetchReceipt(
   input: FetchReceiptInput,
@@ -107,10 +123,16 @@ export async function fetchReceipt(
           input.massifHeight,
           input.entryId,
         );
-  return rawGet(url, opts, "application/cbor");
+  const fetchImpl = opts?.fetchImpl ?? globalThis.fetch;
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return resolveReceiptRaw({
+    receiptUrl: url,
+    fetchImpl: withNetErrors(fetchImpl, timeoutMs),
+  });
 }
 
-/** `GET {baseUrl}/api/forest/{logId}/genesis`. */
+/** `GET {baseUrl}/api/forest/{logId}/genesis`. No scrapi-client equivalent
+ *  (see this file's docstring), so this route also stays on `rawGet`. */
 export async function fetchGenesis(
   input: { baseUrl: string; logId: string },
   opts?: FetchOptions,

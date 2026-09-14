@@ -22,6 +22,7 @@ import {
   decodeReceipt,
   type TrustRoot,
 } from "@forestrie/mcp-verify";
+import { decodeTrustRootDetailsFromGenesis } from "@forestrie/receipt-verify";
 import {
   EndpointError,
   GenesisBindingError,
@@ -337,6 +338,12 @@ export const fetchGenesisInputShape = {
 export const fetchGenesisOutputShape = {
   genesis: BytesSummarySchema.optional(),
   chainBinding: ChainBindingSchema.optional(),
+  /** The bootstrap public key as `x‖y` hex (64 bytes -> 128 hex chars),
+   *  decoded via `@forestrie/receipt-verify`'s
+   *  `decodeTrustRootDetailsFromGenesis` (plan-2609-06 F7). Omitted, not an
+   *  error, for a KS256 v2 bootstrap key — an on-chain address, not a
+   *  P-256 public key — which `bootstrapKeyXy` has nothing to carry for. */
+  bootstrapKeyXy: z.string().optional(),
   provenance: ProvenanceSchema.optional(),
   supports: SupportsSchema,
   problem: ProblemSchema.optional(),
@@ -982,12 +989,39 @@ async function handleFetchGenesis(
   // by guardHandler — this handler does not need its own try/catch for it.
   const chainBinding = decodeChainBindingFromGenesis(classified.bytes);
 
+  // plan-2609-06 F7: the bootstrap public key as x‖y hex, straight from the
+  // genesis bytes (never exported from the non-extractable CryptoKey a
+  // trust-root decode would otherwise produce). `bootstrapKeyXy` is
+  // `undefined` for a KS256 v2 bootstrap key (an on-chain address), and
+  // omitted here rather than failing — decodeTrustRootDetailsFromGenesis
+  // itself throws the same shape of error as decodeChainBindingFromGenesis
+  // for a malformed document, so a document that failed the chain-binding
+  // decode above never reaches this call, and one that failed only here
+  // (an unusable trust root with an otherwise-valid chain binding) is
+  // likewise caught by guardHandler's GenesisBindingError handling — this
+  // package's own class, not receipt-verify's plain Error, so it is
+  // wrapped the same way decodeChainBindingFromGenesis wraps it.
+  let bootstrapKeyXy: string | undefined;
+  try {
+    const trustRoot = await decodeTrustRootDetailsFromGenesis(
+      classified.bytes,
+    );
+    bootstrapKeyXy = trustRoot.bootstrapKeyXy
+      ? Buffer.from(trustRoot.bootstrapKeyXy).toString("hex")
+      : undefined;
+  } catch (err) {
+    throw new GenesisBindingError(
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
   const provenance = fetchedProvenance(raw.url, raw.at);
   return ok(
     `fetched genesis (${classified.bytes.length} B) from ${raw.url}: univocity ${chainBinding.univocity} on chain ${chainBinding.chainId}`,
     {
       genesis: bytesSummary(classified.bytes),
       chainBinding,
+      ...(bootstrapKeyXy !== undefined ? { bootstrapKeyXy } : {}),
       provenance,
       supports: SUPPORTS.fetch_genesis,
     },

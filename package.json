@@ -81,8 +81,9 @@
   },
   "dependencies": {
     "@forestrie/mcp-verify": "0.4.0",
-    "@forestrie/scrapi-client": "0.1.4",
-    "@forestrie/receipt-verify": "1.0.0",
+    "@forestrie/chain-rpc": "0.3.0",
+    "@forestrie/scrapi-client": "0.2.1",
+    "@forestrie/receipt-verify": "1.1.0",
     "@forestrie/encoding": "0.7.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "^4.5.4"

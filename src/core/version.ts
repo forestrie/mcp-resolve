@@ -18,14 +18,22 @@ export const PACKAGE_VERSION = "0.1.2";
  *  test/core/version.test.ts. */
 export const VERIFIER_VERSION = "0.4.0";
 
+/** Keep in sync with package.json#dependencies["@forestrie/chain-rpc"] —
+ *  the injectable-`fetchImpl` JSON-RPC helpers `src/net/chain.ts`'s
+ *  `callJsonRpc` now calls through (plan-2609-06 F7, replacing this
+ *  package's own hand-rolled JSON-RPC POST). Asserted by
+ *  test/core/version.test.ts. */
+export const CHAIN_RPC_VERSION = "0.3.0";
+
 /** Keep in sync with package.json#dependencies["@forestrie/scrapi-client"].
  *  Asserted by test/core/version.test.ts. */
-export const SCRAPI_CLIENT_VERSION = "0.1.4";
+export const SCRAPI_CLIENT_VERSION = "0.2.1";
 
 /** Keep in sync with package.json#dependencies["@forestrie/receipt-verify"]
- *  (N4 amendment A: the FOREST_GENESIS_LABEL_* constants only). Asserted by
- *  test/core/version.test.ts. */
-export const RECEIPT_VERIFY_VERSION = "1.0.0";
+ *  (F7: the FOREST_GENESIS_LABEL_* constants, decodeChainBindingFromGenesis
+ *  and decodeTrustRootDetailsFromGenesis, on top of N4 amendment A's
+ *  encodeKnownAccumulator). Asserted by test/core/version.test.ts. */
+export const RECEIPT_VERIFY_VERSION = "1.1.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/encoding"].
  *  Asserted by test/core/version.test.ts. */

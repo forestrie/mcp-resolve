@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@forestrie/chain-rpc':
+        specifier: 0.3.0
+        version: 0.3.0
       '@forestrie/encoding':
         specifier: 0.7.0
         version: 0.7.0
@@ -15,11 +18,11 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@forestrie/receipt-verify':
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.1.0
+        version: 1.1.0
       '@forestrie/scrapi-client':
-        specifier: 0.1.4
-        version: 0.1.4
+        specifier: 0.2.1
+        version: 0.2.1
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.6.4)
@@ -204,6 +207,9 @@ packages:
   '@forestrie/chain-rpc@0.2.0':
     resolution: {integrity: sha512-StFJkBnoEn5HV/rKdkyi/+d2qQrmTwyUZ6y+ux+7eebJgMitEa3lj9b7BlcgvORTcddvh/IIHOCHmENZswOZiA==}
 
+  '@forestrie/chain-rpc@0.3.0':
+    resolution: {integrity: sha512-HLLu2EiIJ5sfEtyNwK7f8lCfJQBzZd/BiTZk7lMLwQe4EAA8Ju/RvqqmDyKgf2VqlsnCZi4oJoR6gzVOTmIxDg==}
+
   '@forestrie/encoding@0.7.0':
     resolution: {integrity: sha512-3Q8s678bQa8J0RBv92jAjwQE0OTqV9vP8YxASoCB9LQt7VKQ1pxl6h0SvUlggY3RMEvBBLNBcXduh7Szx5r2DA==}
 
@@ -218,8 +224,11 @@ packages:
   '@forestrie/receipt-verify@1.0.0':
     resolution: {integrity: sha512-ygL2tvo4FgJVJPPOA6c2dd6CwcpTf1G1RAbP2MldQ1NWhhReXe1bGtjkZHVZl+37csvSNrq6YTQTPmbOgOjcGQ==}
 
-  '@forestrie/scrapi-client@0.1.4':
-    resolution: {integrity: sha512-kaBvolrzzgaJpgIq141Z2taUKXb9ktPsLuB9x9dzbQOVpQ4r2NSx2h8dAK07QAqsYkqhM+tO0morQ8rI4f25Ww==}
+  '@forestrie/receipt-verify@1.1.0':
+    resolution: {integrity: sha512-QN9btyw94eSF+j/3F5TMEhvTgLlqkxWBgvI8Thm+N1n30po5cQeS7kCtEQWZhym54zEGO+cCxQxQMsmvsih50w==}
+
+  '@forestrie/scrapi-client@0.2.1':
+    resolution: {integrity: sha512-dyQfN0OZ8BOW7R1jminyIHmDtoW1p5ptctWGAfvAq/mCe5phjvlYs6mCmcHsg75rdAsG03l2/ZY4MmbZIhWeuQ==}
 
   '@hono/node-server@2.1.1':
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
@@ -1099,6 +1108,8 @@ snapshots:
 
   '@forestrie/chain-rpc@0.2.0': {}
 
+  '@forestrie/chain-rpc@0.3.0': {}
+
   '@forestrie/encoding@0.7.0':
     dependencies:
       '@noble/curves': 1.9.7
@@ -1123,7 +1134,14 @@ snapshots:
       '@forestrie/merklelog': 0.3.0
       '@noble/hashes': 1.8.0
 
-  '@forestrie/scrapi-client@0.1.4':
+  '@forestrie/receipt-verify@1.1.0':
+    dependencies:
+      '@forestrie/chain-rpc': 0.3.0
+      '@forestrie/encoding': 0.7.0
+      '@forestrie/merklelog': 0.3.0
+      '@noble/hashes': 1.8.0
+
+  '@forestrie/scrapi-client@0.2.1':
     dependencies:
       '@forestrie/encoding': 0.7.0
 

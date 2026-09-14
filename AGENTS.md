@@ -40,9 +40,10 @@ All CI-blocking, checked before every merge:
    project replaces `globalThis.fetch` with a thrower for the whole run
    (`test/setup/forbid-fetch.ts`); `src/net` is tested only through injected
    fakes. Any real fetch in a unit test is a red test, not a slow one.
-3. **`check:encoding-single-copy`** — exactly one copy each of
-   `@forestrie/encoding` and `@forestrie/receipt-verify` in the tree, run on
-   the repo and on a scratch `npm i` of the packed tarball.
+3. **`check:encoding-single-copy`** — exactly one copy each of every
+   `@forestrie/*` wire package this repo pins (`encoding`, `scrapi-client`,
+   `receipt-verify`, `chain-rpc`, `mcp-verify`) in the tree, run on the repo
+   and on a scratch `npm i` of the packed tarball.
 4. **`check:stdio-clean`** — the real bin writes exactly one `initialize`
    response to stdout and nothing else.
 5. **`check:server-json`** — `server.json` validates against the registry
@@ -70,26 +71,32 @@ So: `import { x } from "./thing.js"`, always, even from a `.ts` file.
 Renovate and no Dependabot in this estate, so exact pins are a manual-bump
 discipline, not accidental staleness.
 
-**Never add `pnpm.overrides` for `@forestrie/encoding` or
-`@forestrie/receipt-verify`.** An override would _silence_ the exact skew
+**Never add `pnpm.overrides` for any `@forestrie/*` wire package** —
+`@forestrie/encoding`, `@forestrie/scrapi-client`,
+`@forestrie/receipt-verify`, `@forestrie/chain-rpc` or
+`@forestrie/mcp-verify`. An override would _silence_ the exact skew
 `scripts/check-encoding-single-copy.mjs` exists to detect, by rewriting a
 transitive dependency to a version its parent was never tested against. Two
 copies of a wire-type package means two disagreeing implementations of the
-same bytes. Today both pins are naturally satisfiable — `receipt-verify`
-1.0.0 and `scrapi-client` 0.1.4 both depend on `encoding` 0.7.0 exactly, and
-this package pins `receipt-verify` 1.0.0 and `encoding` 0.7.0 exactly. If a
-future dependency drags a second copy in, fix or drop that dependency, or
-wait for its bump.
+same bytes. Today every pin is naturally satisfiable — `receipt-verify`
+1.1.0 depends on `chain-rpc` 0.3.0 and `encoding` 0.7.0 exactly, and
+`scrapi-client` 0.2.1 depends on `encoding` 0.7.0 exactly, matching this
+package's own exact pins for all five. If a future dependency drags a
+second copy in, fix or drop that dependency, or wait for its bump.
 
-**`@forestrie/chain-rpc` is deliberately absent from `package.json`.**
-plan-2609-05 N4 amendment B: its `EthRpcOptions` is `{ timeoutMs?: number }`
-only and `ethRpc` calls the global `fetch` directly, with no injection
-point, so depending on it would make gate 2 unsatisfiable for the chain
-read. `src/net/chain.ts` (phase 2) makes the three JSON-RPC calls
-(`eth_chainId`, `eth_getBlockByNumber`, `eth_call`) itself through an
-injected `fetchImpl` instead — roughly 40 lines, tested through fakes only.
-Do not add `chain-rpc` back as a dependency without re-checking its
-`EthRpcOptions` shape first.
+**`@forestrie/chain-rpc` (plan-2609-06 F7).** No longer absent: its 0.3.0
+`EthRpcOptions` gained `fetchImpl?: typeof fetch` (default
+`globalThis.fetch`), closing the injection gap plan-2609-05 N4 amendment B
+noted (`EthRpcOptions` used to be `{ timeoutMs?: number }` only, with
+`ethRpc` calling the global `fetch` directly). `src/net/chain.ts` now makes
+its three JSON-RPC calls (`eth_chainId`, `eth_getBlockByNumber`, `eth_call`)
+through `ethRpc`, always passing an explicit `fetchImpl` wrapped in
+`http.ts`'s `withNetErrors` (gate 2's timeout/`NetError` guarantee is drawn
+there now, not inside `ethRpc`, which enforces no timeout of its own against
+a signal-ignoring `fetchImpl`); `history.ts`'s `eth_getLogs` scan shares the
+same `callJsonRpc`, unchanged. Before bumping `chain-rpc` again, re-check
+that `EthRpcOptions.fetchImpl` is still honoured by every call this package
+uses.
 
 When you bump a version, update `src/core/version.ts` in the same commit.
 `test/core/version.test.ts` asserts every `*_VERSION` constant equals the
