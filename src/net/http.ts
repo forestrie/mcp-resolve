@@ -7,7 +7,7 @@
  * request time).
  *
  * `rawGet` is this module's own transport, used for the two SCRAPI routes
- * `@forestrie/scrapi-client` 0.2.1 has no function for —
+ * `@forestrie/scrapi-client` 0.2.2 has no function for —
  * `.well-known/scitt-configuration` and `/api/forest/{logId}/genesis`
  * (plan-2609-06 F7; `dist/index.d.ts` lists only `register`,
  * `query-registration`, `resolve-receipt` and `problem-details`).

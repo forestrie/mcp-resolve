@@ -60,6 +60,14 @@ This package therefore treats `fetch_genesis` as a capture tool. Obtain the
 document once, keep it, and pass it as bytes from then on. The composed
 tool's schema does not admit a fetched genesis as its root, by construction.
 
+The tool also returns the bootstrap public key decoded from the document,
+as `bootstrapKeyXy` (x‖y hex, present for an ES256 forest). It is read from
+the same bytes, so it has exactly the standing of the copy it came from:
+pinning it from a copy fetched at check time is the same
+`known-log-key`-from-the-operator case described above. Its use is to show
+or record the key that a copy you already keep carries, not to establish
+one.
+
 The same reasoning applies to the chain binding the document carries. A
 chain read under a contract address you took from the operator at check
 time answers split-view against the contract the operator named. Keep the

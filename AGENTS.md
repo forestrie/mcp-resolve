@@ -78,11 +78,20 @@ discipline, not accidental staleness.
 `scripts/check-encoding-single-copy.mjs` exists to detect, by rewriting a
 transitive dependency to a version its parent was never tested against. Two
 copies of a wire-type package means two disagreeing implementations of the
-same bytes. Today every pin is naturally satisfiable — `receipt-verify`
-1.1.0 depends on `chain-rpc` 0.3.0 and `encoding` 0.7.0 exactly, and
-`scrapi-client` 0.2.1 depends on `encoding` 0.7.0 exactly, matching this
-package's own exact pins for all five. If a future dependency drags a
-second copy in, fix or drop that dependency, or wait for its bump.
+same bytes.
+
+This package's own `receipt-verify` and `chain-rpc` pins are satisfiable
+only once `@forestrie/mcp-verify` publishes a version that itself pins
+`receipt-verify` 1.1.0: today's `mcp-verify` 0.4.0 (npm's latest) pins
+`receipt-verify` 1.0.0 exactly, which pins `chain-rpc` 0.2.0 exactly — a
+second copy of each, dragged in by a dependency this package does not
+control. Until `mcp-verify` bumps, `check:encoding-single-copy` is red **by
+design** on those two packages; that is a finding to wait on or chase
+upstream, never an override to silence. `scrapi-client` 0.2.2 depends on
+`encoding` 0.7.0 exactly, matching this package's own pin, so that one
+stays naturally satisfiable today. If a future dependency drags in a
+further second copy, fix or drop that dependency, or wait for its bump —
+the same remedy, never an override.
 
 **`@forestrie/chain-rpc` (plan-2609-06 F7).** No longer absent: its 0.3.0
 `EthRpcOptions` gained `fetchImpl?: typeof fetch` (default

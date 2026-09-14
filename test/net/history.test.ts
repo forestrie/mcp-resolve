@@ -113,11 +113,11 @@ describe("scanCheckpointHistory", () => {
 
     expect(result.kind).toBe("problem");
     if (result.kind !== "problem") throw new Error("unreachable");
-    // No `status`: @forestrie/chain-rpc's `ethRpc` (plan-2609-06 F7) does
-    // not expose the underlying HTTP status for a JSON-RPC-level error —
-    // see the matching note in test/net/chain.test.ts.
+    // status is recovered from the real Response, not from ethRpc's own
+    // message text — see the matching note in test/net/chain.test.ts.
     expect(result.problem).toEqual({
       code: "rpc_error",
+      status: 200,
       message: "boom",
     });
     expect(result.requests).toBe(1);

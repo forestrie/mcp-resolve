@@ -110,16 +110,44 @@ describe("readLogState", () => {
       { fetchImpl: replay.fetch },
     );
 
-    // No `status` here: @forestrie/chain-rpc's `ethRpc` (F7) only surfaces
-    // the plain `error.message` for a JSON-RPC-level error — it does not
-    // expose the underlying HTTP status on that path (chain.ts can only
-    // infer it was 2xx, since that branch is reached only once `res.ok`
-    // held) — see `callJsonRpc`'s docstring in src/net/chain.ts.
+    // @forestrie/chain-rpc's `ethRpc` (F7) itself drops the HTTP status for
+    // a JSON-RPC-level error (its own thrown message is just
+    // `error.message`) — `callJsonRpc` recovers it from the real
+    // `Response.status` of the one request this makes, not from ethRpc's
+    // message text, so `status` is still exactly what it was pre-F7.
     expect(result).toEqual({
       kind: "problem",
-      problem: { code: "rpc_error", message: "boom" },
+      problem: { code: "rpc_error", status: 200, message: "boom" },
     });
     expect(replay.calls).toHaveLength(1);
+  });
+
+  it("returns rpc_error with status 200 for a JSON-RPC error on the eth_call step (not just the first call)", async () => {
+    const replay = await createChainReplay({
+      eth_call: {
+        status: 200,
+        response: {
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32000, message: "execution reverted" },
+        },
+      },
+    });
+
+    const result = await readLogState(
+      { rpcUrl: RPC_URL, univocity: UNIVOCITY, logId: LOG_ID },
+      { fetchImpl: replay.fetch },
+    );
+
+    expect(result).toEqual({
+      kind: "problem",
+      problem: {
+        code: "rpc_error",
+        status: 200,
+        message: "execution reverted",
+      },
+    });
+    expect(replay.calls).toHaveLength(3);
   });
 
   it("throws NetError(network) when fetchImpl rejects", async () => {
@@ -270,11 +298,12 @@ describe("readChainHead", () => {
       { fetchImpl: replay.fetch },
     );
 
-    // No `status` — see the matching note on readLogState's own
-    // "JSON-RPC error body" test above.
+    // See the matching note on readLogState's own "JSON-RPC error body"
+    // test above: status is recovered from the real Response, not from
+    // ethRpc's own message text.
     expect(result).toEqual({
       kind: "problem",
-      problem: { code: "rpc_error", message: "boom" },
+      problem: { code: "rpc_error", status: 200, message: "boom" },
     });
   });
 });

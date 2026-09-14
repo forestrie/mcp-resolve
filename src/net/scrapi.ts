@@ -9,7 +9,7 @@
  * (plan-2609-05 step 2.3).
  *
  * `queryRegistration` and `fetchReceipt` go through `@forestrie/scrapi-client`
- * 0.2.1's `queryRegistrationRaw` / `resolveReceiptRaw` (plan-2609-06 F7):
+ * 0.2.2's `queryRegistrationRaw` / `resolveReceiptRaw` (plan-2609-06 F7):
  * unlike the 0.1.4 poll-once primitives this module used to have to avoid
  * (each discarded headers/body for every status but its one success case —
  * see plan-2609-06 F7's history for the old reasoning), the `*Raw`
@@ -23,7 +23,7 @@
  * that file's docstring).
  *
  * `fetchScittConfiguration` and `fetchGenesis` stay on `./http.js`'s own
- * `rawGet`: `@forestrie/scrapi-client` 0.2.1's `dist/index.d.ts` exports no
+ * `rawGet`: `@forestrie/scrapi-client` 0.2.2's `dist/index.d.ts` exports no
  * function for `.well-known/scitt-configuration` or
  * `/api/forest/{logId}/genesis` at all (only `register`,
  * `query-registration`, `resolve-receipt` and `problem-details`), so there
@@ -32,7 +32,7 @@
  * The primitives scrapi-client exports that classification actually needs
  * — `RECEIPT_LOCATION_RE`, `parseEntryIdFromReceiptLocation`,
  * `decodeProblemDetailsBytes`, `toAbsoluteScrapiUrl` — are already imported
- * directly by `src/core/classify.ts` (phase 1) and are unchanged in 0.2.1.
+ * directly by `src/core/classify.ts` (phase 1) and are unchanged in 0.2.2.
  */
 import {
   queryRegistrationRaw,

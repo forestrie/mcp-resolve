@@ -26,8 +26,9 @@ export const VERIFIER_VERSION = "0.4.0";
 export const CHAIN_RPC_VERSION = "0.3.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/scrapi-client"].
- *  Asserted by test/core/version.test.ts. */
-export const SCRAPI_CLIENT_VERSION = "0.2.1";
+ *  0.2.2, not 0.2.1: 0.2.2's only change is a doc comment fix (0.2.1's was
+ *  no longer true). Asserted by test/core/version.test.ts. */
+export const SCRAPI_CLIENT_VERSION = "0.2.2";
 
 /** Keep in sync with package.json#dependencies["@forestrie/receipt-verify"]
  *  (F7: the FOREST_GENESIS_LABEL_* constants, decodeChainBindingFromGenesis

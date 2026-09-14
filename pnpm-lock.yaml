@@ -21,8 +21,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0
       '@forestrie/scrapi-client':
-        specifier: 0.2.1
-        version: 0.2.1
+        specifier: 0.2.2
+        version: 0.2.2
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.6.4)
@@ -227,8 +227,8 @@ packages:
   '@forestrie/receipt-verify@1.1.0':
     resolution: {integrity: sha512-QN9btyw94eSF+j/3F5TMEhvTgLlqkxWBgvI8Thm+N1n30po5cQeS7kCtEQWZhym54zEGO+cCxQxQMsmvsih50w==}
 
-  '@forestrie/scrapi-client@0.2.1':
-    resolution: {integrity: sha512-dyQfN0OZ8BOW7R1jminyIHmDtoW1p5ptctWGAfvAq/mCe5phjvlYs6mCmcHsg75rdAsG03l2/ZY4MmbZIhWeuQ==}
+  '@forestrie/scrapi-client@0.2.2':
+    resolution: {integrity: sha512-0SdvXWiC94P+vsOFN101WpXrY1KA8BSBy7A45dTNK1i/U+Gz0mYCJRbfduc5W/UeD32P59mKLeBX61iB5XEOgg==}
 
   '@hono/node-server@2.1.1':
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
@@ -1141,7 +1141,7 @@ snapshots:
       '@forestrie/merklelog': 0.3.0
       '@noble/hashes': 1.8.0
 
-  '@forestrie/scrapi-client@0.2.1':
+  '@forestrie/scrapi-client@0.2.2':
     dependencies:
       '@forestrie/encoding': 0.7.0
 

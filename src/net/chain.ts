@@ -83,19 +83,26 @@ export type JsonRpcOutcome =
  * cosmetic difference only.
  *
  * `ethRpc` itself throws rather than returning a structured result: an
- * `Error("RPC {method} failed: {status}")` when `!res.ok`, a plain
- * `Error(json.error.message)` for a JSON-RPC-level `error` member, and
- * whatever its `fetchImpl` throws otherwise (`dist/eth-rpc.js`, 0.3.0,
- * exact pin). The `fetchImpl` passed to it is always wrapped in
- * `withNetErrors` (http.ts) first, so a genuine transport failure or
- * timeout surfaces here as `NetError` — `ethRpc`'s own `catch` only
- * special-cases `AbortError`, so a `NetError` we already raised is
- * rethrown unchanged and `if (err instanceof NetError) throw err;` below
- * always fires for it before the two `rpc_error` branches are considered.
- * `ethRpc`'s own res-not-ok message carries the status; its JSON-RPC-error
- * message does not (that branch is only reached once `res.ok` held, so the
- * status was in the 200-299 range but is not otherwise recoverable —
- * `status` is omitted there rather than guessed).
+ * `Error("RPC {method} failed: {status}")` when `!res.ok`, or a plain
+ * `Error(json.error.message)` for a JSON-RPC-level `error` member
+ * (`dist/eth-rpc.js`, 0.3.0, exact pin) — and in the second case the
+ * thrown message carries no status at all, even though a response (2xx)
+ * was in fact obtained. Rather than parse the status back out of the first
+ * message shape (fragile, and useless for the second), the `fetchImpl`
+ * `ethRpc` is given here is wrapped twice: once in `withNetErrors`
+ * (http.ts, for the timeout/`NetError` guarantee), and again just to
+ * record the real `Response.status` of the one request this makes, in
+ * `lastStatus`, before `ethRpc` parses the body — so every `rpc_error`
+ * problem below carries the actual HTTP status regardless of which of
+ * ethRpc's two failure shapes it hit, exactly as this package's own
+ * pre-F7 JSON-RPC POST always did.
+ *
+ * A genuine transport failure or timeout still surfaces as `NetError`:
+ * `ethRpc`'s own `catch` only special-cases `AbortError`, so a `NetError`
+ * `withNetErrors` already raised is rethrown unchanged, and
+ * `if (err instanceof NetError) throw err;` below always fires for it
+ * before `lastStatus` (never set in that case, since no response was
+ * obtained) is consulted.
  */
 export async function callJsonRpc(
   rpcUrl: string,
@@ -107,25 +114,33 @@ export async function callJsonRpc(
   void id;
   const fetchImpl = opts?.fetchImpl ?? globalThis.fetch;
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const netErrorFetch = withNetErrors(fetchImpl, timeoutMs);
+
+  let lastStatus: number | undefined;
+  const recordingFetch = (async (input, init) => {
+    const res = await netErrorFetch(input, init);
+    lastStatus = res.status;
+    return res;
+  }) as typeof fetch;
 
   let result: unknown;
   try {
     result = await ethRpc(rpcUrl, method, params, {
       timeoutMs,
-      fetchImpl: withNetErrors(fetchImpl, timeoutMs),
+      fetchImpl: recordingFetch,
     });
   } catch (err) {
     if (err instanceof NetError) throw err;
     const message = err instanceof Error ? err.message : String(err);
-    const httpFailure = /^RPC .+ failed: (\d+)$/.exec(message);
-    if (httpFailure) {
-      const status = Number(httpFailure[1]);
-      return {
-        ok: false,
-        result: rpcErrorProblem(status, `HTTP ${status} calling ${method}`),
-      };
-    }
-    return { ok: false, result: rpcErrorProblem(undefined, message) };
+    const httpFailed =
+      lastStatus !== undefined && (lastStatus < 200 || lastStatus >= 300);
+    return {
+      ok: false,
+      result: rpcErrorProblem(
+        lastStatus,
+        httpFailed ? `HTTP ${lastStatus} calling ${method}` : message,
+      ),
+    };
   }
   return { ok: true, result };
 }
