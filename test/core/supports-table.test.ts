@@ -25,6 +25,14 @@ const EXPECTED_SUPPORTS = {
     ],
     note: "split-view against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, stated as inheritance, never as a local signature check",
   },
+  fetch_checkpoint_history: {
+    rows: [
+      { question: "split-view", root: "known-accumulator" },
+      { question: "sealing", root: "known-accumulator" },
+      { question: "append-authority", root: "known-accumulator" },
+    ],
+    note: "split-view against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, stated as inheritance, never as a local signature check; a kept checkpoint answers split-view later, without another chain read, for any receipt whose peak it contains",
+  },
   fetch_scitt_configuration: {
     rows: [],
     note: "operator self-description; evidence for none of the four questions",

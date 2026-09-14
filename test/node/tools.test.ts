@@ -78,12 +78,13 @@ const UNIVOCITY = "0x678768643b4667aedcb313cc81624aa560b7f0ca";
 const CHAIN_ID = 84532;
 const BLOCK_NUMBER = 46770471;
 
-const N2_TOOL_NAMES: ToolName[] = [
+const TOOL_NAMES: ToolName[] = [
   "fetch_scitt_configuration",
   "query_registration",
   "fetch_receipt",
   "fetch_genesis",
   "fetch_accumulator",
+  "fetch_checkpoint_history",
   "verify_fetched_receipt",
 ];
 
@@ -112,6 +113,17 @@ const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
 const SYNTHETIC_LOGSTATE_PATH = path.join(
   SYNTHETIC_HISTORY_DIR,
   "logState.46795144.json",
+);
+/** The real (FROZEN) history capture's own "latest" `logState`, at the
+ *  real chain's latest block, 46785144 — plan-2609-06 step 1.2. */
+const REAL_LOGSTATE_PATH = path.join(
+  HERE,
+  "..",
+  "fixtures",
+  "chain",
+  "history",
+  PUBLICATIONS_LOG_ID,
+  "logState.46785144.json",
 );
 
 function requestUrl(input: string | URL | Request): string {
@@ -238,12 +250,10 @@ function stripCourierDiagnostics(
 /* ---------------------------------------------------------------------- */
 
 describe("tools/list", () => {
-  it("every N2 tool carries the N5 annotations, a title, and its exact text.ts description", async () => {
+  it("every tool carries the N5 annotations, a title, and its exact text.ts description", async () => {
     await withClient({ env: {} }, async (client) => {
       const { tools } = await client.listTools();
-      expect(tools.map((t) => t.name).sort()).toEqual(
-        [...N2_TOOL_NAMES].sort(),
-      );
+      expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
 
       for (const tool of tools) {
         const name = tool.name as ToolName;
@@ -888,6 +898,148 @@ describe("fetch_accumulator", () => {
       "forReceipt with grant true is not supported by this version; verify_fetched_receipt handles grant receipts",
     );
     expect(calls).toHaveLength(0);
+  });
+});
+
+/* ---------------------------- fetch_checkpoint_history ---------------------- */
+
+describe("fetch_checkpoint_history", () => {
+  it("real history from the real latest (46785144), history.fromBlock 46732186: 6 checkpoints newest first, 6 requests, only the chain head (no eth_call)", async () => {
+    const chain = await createChainReplay(undefined, REAL_LOGSTATE_PATH);
+    const history = await createChainHistoryReplay();
+    const result = await withClient(
+      { fetchImpl: combineChainAndHistory(chain, history), env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_checkpoint_history",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+              history: { fromBlock: 46732186 },
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      checkpoints: Array<{
+        size: number;
+        blockNumber: number;
+        snapshot: string;
+      }>;
+      scannedFrom: number;
+      scannedTo: number;
+      requests: number;
+      chainBinding: { univocity: string; chainId: number; logId: string };
+      provenance: Provenance;
+      supports: Supports;
+    };
+    expect(structured.checkpoints.map((c) => c.size)).toEqual([
+      11, 10, 8, 4, 3, 1,
+    ]);
+    expect(structured.scannedFrom).toBe(46732186);
+    expect(structured.scannedTo).toBe(46785144);
+    expect(structured.requests).toBe(6);
+    expect(structured.chainBinding).toEqual({
+      univocity: UNIVOCITY,
+      chainId: CHAIN_ID,
+      logId: PUBLICATIONS_LOG_ID,
+    });
+    expect(structured.provenance.source).toBe("chain-read");
+    expect(structured.provenance.history).toEqual({
+      scannedFrom: 46732186,
+      scannedTo: 46785144,
+      requests: 6,
+    });
+    expect(structured.supports).toEqual(SUPPORTS.fetch_checkpoint_history);
+
+    for (const cp of structured.checkpoints) {
+      const decoded = decodeKnownAccumulator(
+        new Uint8Array(Buffer.from(cp.snapshot, "base64")),
+      );
+      expect(decoded.size).toBe(BigInt(cp.size));
+      expect(decoded.blockNumber).toBe(BigInt(cp.blockNumber));
+    }
+
+    // readChainHead: eth_chainId + eth_getBlockByNumber only — no eth_call.
+    expect(chain.calls).toHaveLength(2);
+    expect(history.calls).toHaveLength(6);
+  });
+
+  it("maxBlocks 20000 stops short of every real checkpoint: 2 requests, 0 checkpoints, no problem", async () => {
+    const chain = await createChainReplay(undefined, REAL_LOGSTATE_PATH);
+    const history = await createChainHistoryReplay();
+    const result = await withClient(
+      { fetchImpl: combineChainAndHistory(chain, history), env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_checkpoint_history",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+              history: { maxBlocks: 20_000 },
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      checkpoints: unknown[];
+      requests: number;
+      problem?: unknown;
+    };
+    expect(structured.checkpoints).toEqual([]);
+    expect(structured.requests).toBe(2);
+    expect(structured.problem).toBeUndefined();
+    expect(chain.calls).toHaveLength(2);
+    expect(history.calls).toHaveLength(2);
+  });
+
+  it("a JSON-RPC error on the first window is a structured problem, isError:false", async () => {
+    const chain = await createChainReplay(undefined, REAL_LOGSTATE_PATH);
+    const history = await createChainHistoryReplay([
+      {
+        fromBlock: "0x2c9bb69", // 46775145
+        toBlock: "0x2c9e278", // 46785144
+        status: 200,
+        response: {
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32000, message: "boom" },
+        },
+      },
+    ]);
+    const result = await withClient(
+      { fetchImpl: combineChainAndHistory(chain, history), env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_checkpoint_history",
+          arguments: {
+            chain: {
+              rpcUrl: RPC_URL,
+              univocity: UNIVOCITY,
+              logId: PUBLICATIONS_LOG_ID,
+              chainId: CHAIN_ID,
+            },
+          },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("rpc_error");
+    expect(structured.problem.message).toBe("boom");
+    expect(history.calls).toHaveLength(1);
   });
 });
 

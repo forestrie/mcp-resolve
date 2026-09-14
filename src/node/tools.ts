@@ -1,5 +1,6 @@
 /**
- * The six N2 tools: zod input/output shapes and handlers. Every handler
+ * The six N2 tools, plus the seventh, `fetch_checkpoint_history`
+ * (plan-2609-06 F4): zod input/output shapes and handlers. Every handler
  * returns `{ content, structuredContent, isError: false }` — an HTTP
  * problem, a 429, a `NetError`, a chain problem, and a malformed input are
  * ALL a `structuredContent.problem`, never a throw (N8, AGENTS.md). Only a
@@ -43,10 +44,12 @@ import {
 import {
   NetError,
   fetchAccumulatorSnapshot,
+  fetchCheckpointHistory,
   fetchGenesis,
   fetchReceipt,
   fetchScittConfiguration,
   queryRegistration,
+  readChainHead,
   scanCheckpointHistory,
   toClassifyView,
   type FetchReceiptInput,
@@ -233,11 +236,16 @@ const TrustInputSchema = z
 /* ------------------------------ output shapes ------------------------------ */
 
 /** F1/F2: present only when the accumulator came from a checkpoint
- *  selected out of published history rather than the latest `logState`. */
+ *  selected out of published history rather than the latest `logState`.
+ *  `blockNumber`/`blockHash`/`size` name that one selected checkpoint
+ *  (`fetch_accumulator`, `verify_fetched_receipt`); F4's
+ *  `fetch_checkpoint_history` returns every checkpoint in range rather
+ *  than selecting one, so its own `provenance.history` carries only the
+ *  scan's bounds and cost. */
 const HistoryProvenanceSchema = z.object({
-  blockNumber: z.number(),
-  blockHash: z.string(),
-  size: z.number(),
+  blockNumber: z.number().optional(),
+  blockHash: z.string().optional(),
+  size: z.number().optional(),
   scannedFrom: z.number(),
   scannedTo: z.number(),
   requests: z.number(),
@@ -355,6 +363,46 @@ export const fetchAccumulatorOutputShape = {
    *  latest state's own size/block, so the caller sees what forReceipt
    *  was compared against. */
   latest: z.object({ size: z.number(), blockNumber: z.number() }).optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+/** F4: the chain union alone, no `forReceipt` — this tool never selects
+ *  one checkpoint, it returns every checkpoint the scan covers. */
+export const fetchCheckpointHistoryInputShape = {
+  chain: ChainInputSchema,
+};
+export const fetchCheckpointHistoryOutputShape = {
+  checkpoints: z
+    .array(
+      z.object({
+        size: z.number(),
+        accumulator: z.array(z.string()),
+        blockNumber: z.number(),
+        blockHash: z.string(),
+        txHash: z.string(),
+        /** base64 `toKnownAccumulator(cp, binding)` — keep it, and pass it
+         *  back to `verify_fetched_receipt` as supplied `trust.accumulator`
+         *  bytes (F4). */
+        snapshot: z.string(),
+      }),
+    )
+    .optional(),
+  scannedFrom: z.number().optional(),
+  scannedTo: z.number().optional(),
+  requests: z.number().optional(),
+  /** The chain identity every checkpoint above was read against — the
+   *  same fields `fetch_accumulator`'s `accumulator` object carries,
+   *  factored out once here since this tool returns many checkpoints
+   *  rather than one. */
+  chainBinding: z
+    .object({
+      univocity: z.string(),
+      chainId: z.number(),
+      logId: z.string(),
+    })
+    .optional(),
+  provenance: ProvenanceSchema.optional(),
   supports: SupportsSchema,
   problem: ProblemSchema.optional(),
 };
@@ -1159,6 +1207,102 @@ async function handleFetchAccumulator(
   );
 }
 
+/* --------------------------- fetch_checkpoint_history ----------------------- */
+
+/** One `PublishedCheckpoint`, structured for the wire: hex peaks (as
+ *  `fetch_accumulator`'s `accumulator.peaks` are), and the same checkpoint
+ *  as a `known-accumulator` snapshot (base64) the caller can keep and
+ *  later pass back as `trust.accumulator` supplied bytes (F4). */
+function publishedCheckpointStructured(
+  cp: PublishedCheckpoint,
+  binding: { chainId: number; univocity: string; logId: string },
+): Record<string, unknown> {
+  const snapshot = toKnownAccumulator(cp, binding);
+  return {
+    size: Number(cp.size),
+    accumulator: cp.accumulator.map(
+      (p) => `0x${Buffer.from(p).toString("hex")}`,
+    ),
+    blockNumber: Number(cp.blockNumber),
+    blockHash: cp.blockHash,
+    txHash: cp.txHash,
+    snapshot: Buffer.from(snapshot).toString("base64"),
+  };
+}
+
+async function handleFetchCheckpointHistory(
+  args: { chain: ChainInput },
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const resolved = resolveChainInput(args.chain, deps);
+  if (!resolved.ok)
+    return problemResult("fetch_checkpoint_history", resolved.problem);
+  const { rpcUrl, univocity, logId, expectedChainId, binding } =
+    resolved.value;
+
+  // F4: the latest block only — no eth_call, this tool has no use for
+  // logState itself.
+  const head = await readChainHead(
+    {
+      rpcUrl,
+      ...(expectedChainId !== undefined ? { expectedChainId } : {}),
+    },
+    { fetchImpl: deps.fetchImpl },
+  );
+  if (head.kind === "problem") {
+    return problemResult("fetch_checkpoint_history", { ...head.problem });
+  }
+
+  const scan = await fetchCheckpointHistory(
+    {
+      rpcUrl,
+      univocity,
+      logId,
+      latestBlock: head.blockNumber,
+      ...historyBounds(args.chain.history),
+    },
+    { fetchImpl: deps.fetchImpl },
+  );
+
+  if (scan.kind === "problem") {
+    return problemResult("fetch_checkpoint_history", {
+      ...scan.problem,
+      scannedFrom: Number(scan.scannedFrom),
+      scannedTo: Number(scan.scannedTo),
+      requests: scan.requests,
+    });
+  }
+
+  const chainBinding = { univocity, chainId: head.chainId, logId };
+  const checkpoints = scan.checkpoints.map((cp) =>
+    publishedCheckpointStructured(cp, chainBinding),
+  );
+
+  const provenance: Provenance = {
+    source: "chain-read",
+    from: { rpcUrl, univocity, chainId: head.chainId },
+    at: head.at,
+    binding,
+    history: {
+      scannedFrom: Number(scan.scannedFrom),
+      scannedTo: Number(scan.scannedTo),
+      requests: scan.requests,
+    },
+  };
+
+  const text = `read ${checkpoints.length} published checkpoint${checkpoints.length === 1 ? "" : "s"} between blocks ${scan.scannedFrom} and ${scan.scannedTo} (${scan.requests} requests)\n${SUPPORTS.fetch_checkpoint_history.note}`;
+
+  return ok(text, {
+    checkpoints,
+    scannedFrom: Number(scan.scannedFrom),
+    scannedTo: Number(scan.scannedTo),
+    requests: scan.requests,
+    chainBinding,
+    provenance,
+    supports: SUPPORTS.fetch_checkpoint_history,
+  });
+}
+
 /* --------------------------- verify_fetched_receipt ------------------------ */
 
 type TrustRootWireInput =
@@ -1519,6 +1663,13 @@ export function makeFetchAccumulatorTool(deps: ResolvedDeps) {
   }) =>
     guardHandler("fetch_accumulator", () =>
       handleFetchAccumulator(args, deps),
+    );
+}
+
+export function makeFetchCheckpointHistoryTool(deps: ResolvedDeps) {
+  return (args: { chain: ChainInput }) =>
+    guardHandler("fetch_checkpoint_history", () =>
+      handleFetchCheckpointHistory(args, deps),
     );
 }
 

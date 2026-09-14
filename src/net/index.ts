@@ -18,7 +18,9 @@
  * `readLogState` is the three-call `eth_chainId` /
  * `eth_getBlockByNumber` / `eth_call` read, and `fetchAccumulatorSnapshot`
  * composes it with core's decode/encode into a `known-accumulator`
- * snapshot. `types.ts` carries the shapes both share (`RawResponse`,
+ * snapshot; `readChainHead` (plan-2609-06 F4) is the same first two calls
+ * without the `eth_call`, for `fetch_checkpoint_history`, which has no use
+ * for `logState`. `types.ts` carries the shapes both share (`RawResponse`,
  * `FetchOptions`, `NetError`) and `toClassifyView`, the mapping from a
  * `RawResponse` onto core's `ClassifyView`.
  */
@@ -34,10 +36,16 @@ export {
 } from "./scrapi.js";
 export type { FetchReceiptInput } from "./scrapi.js";
 
-export { readLogState, fetchAccumulatorSnapshot } from "./chain.js";
+export {
+  readLogState,
+  readChainHead,
+  fetchAccumulatorSnapshot,
+} from "./chain.js";
 export type {
   ReadLogStateInput,
   ReadLogStateResult,
+  ReadChainHeadInput,
+  ReadChainHeadResult,
   LogStateProblem,
   FetchAccumulatorSnapshotResult,
 } from "./chain.js";
