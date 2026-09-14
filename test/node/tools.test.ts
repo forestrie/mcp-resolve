@@ -41,6 +41,7 @@ import {
   type ChainHistoryReplay,
   type ChainReplay,
   type LaneAReplay,
+  type ReplayCall,
 } from "../net/replay.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -187,6 +188,23 @@ function combineChainAndHistory(
       ? history.fetch(input, init)
       : chain.fetch(input, init);
   }) as unknown as typeof fetch;
+}
+
+/** Gap check (plan-2609-06 phase 1 step 1.6): `historyWindows`
+ *  (`src/core/history.ts`) documents it never produces the string
+ *  `"earliest"`, and `test/net/replay.ts`'s chain-history replay already
+ *  throws if one arrives — this asserts that directly against the
+ *  recorded calls, rather than relying only on that throw never firing. */
+function assertNoEarliestFromBlock(calls: ReplayCall[]): void {
+  for (const call of calls) {
+    const bodyText =
+      typeof call.init?.body === "string" ? call.init.body : "{}";
+    const parsed = JSON.parse(bodyText) as {
+      params?: [{ fromBlock?: unknown; toBlock?: unknown }];
+    };
+    expect(parsed.params?.[0]?.fromBlock).not.toBe("earliest");
+    expect(parsed.params?.[0]?.toBlock).not.toBe("earliest");
+  }
 }
 
 async function create429Fetch(): Promise<{
@@ -818,6 +836,7 @@ describe("fetch_accumulator", () => {
 
     expect(chain.calls).toHaveLength(3); // the initial logState read
     expect(history.calls).toHaveLength(4); // the buried-peak scan (F2)
+    assertNoEarliestFromBlock(history.calls);
   });
 
   it("forReceipt without payload/entryId is missing_input before any JSON-RPC call, zero requests", async () => {
@@ -968,6 +987,7 @@ describe("fetch_checkpoint_history", () => {
     // readChainHead: eth_chainId + eth_getBlockByNumber only — no eth_call.
     expect(chain.calls).toHaveLength(2);
     expect(history.calls).toHaveLength(6);
+    assertNoEarliestFromBlock(history.calls);
   });
 
   it("maxBlocks 20000 stops short of every real checkpoint: 2 requests, 0 checkpoints, no problem", async () => {
@@ -1001,6 +1021,7 @@ describe("fetch_checkpoint_history", () => {
     expect(structured.problem).toBeUndefined();
     expect(chain.calls).toHaveLength(2);
     expect(history.calls).toHaveLength(2);
+    assertNoEarliestFromBlock(history.calls);
   });
 
   it("a JSON-RPC error on the first window is a structured problem, isError:false", async () => {
@@ -1040,6 +1061,7 @@ describe("fetch_checkpoint_history", () => {
     expect(structured.problem.code).toBe("rpc_error");
     expect(structured.problem.message).toBe("boom");
     expect(history.calls).toHaveLength(1);
+    assertNoEarliestFromBlock(history.calls);
   });
 });
 
@@ -1306,6 +1328,7 @@ describe("verify_fetched_receipt", () => {
     expect(laneA.calls).toHaveLength(1);
     expect(chain.calls).toHaveLength(3); // the initial logState read
     expect(history.calls).toHaveLength(4); // the buried-peak scan (F2)
+    assertNoEarliestFromBlock(history.calls);
   });
 
   it("known-accumulator, chain history fallback with a tight budget: history_scan_exhausted, isError:false, no throw", async () => {
@@ -1357,6 +1380,7 @@ describe("verify_fetched_receipt", () => {
     expect(structured.problem.scannedTo).toBe(46795144);
     expect(structured.latest).toBeDefined();
     expect(structured.supports).toEqual(SUPPORTS.verify_fetched_receipt);
+    assertNoEarliestFromBlock(history.calls);
   });
 
   it("refuses trust:{root:'genesis', fetch:true} (no genesis bytes) at input validation, zero requests", async () => {
