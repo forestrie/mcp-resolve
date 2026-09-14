@@ -15,6 +15,7 @@ export default defineConfig({
             "test/core/**/*.test.ts",
             "test/net/**/*.test.ts",
             "test/node/**/*.test.ts",
+            "test/scripts/**/*.test.ts",
           ],
           // N6 gate 2: every test in this project runs with a fetch that
           // throws. src/core never fetches and src/net is tested only

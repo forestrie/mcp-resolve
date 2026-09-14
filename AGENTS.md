@@ -54,8 +54,12 @@ All CI-blocking, checked before every merge:
    silently passes) if the scratch install itself cannot run, e.g. offline.
 5. **`check:stdio-clean`** — the real bin writes exactly one `initialize`
    response to stdout and nothing else.
-6. **`check:server-json`** — `server.json` validates against the registry
-   schema and matches `package.json#mcpName` and `#version`.
+6. **`check:server-json`** — `server.json` validates with ajv against the
+   registry schema vendored at `tools/registry-schema/2025-12-11.json` (the
+   exact `$schema` `server.json` names, fetched once and committed so the
+   check is hermetic) and matches `package.json#mcpName` and `#version`
+   (plan-2609-06 F6 — closes the v0.1.1 gap where npm published a
+   server.json the registry then rejected).
 7. **Recorded-exchange fixtures, frozen** (phase 2 onward) — live lane
    responses are captured once by a runner into `test/fixtures/lane-a/` with
    a `PROVENANCE.md` and a sha256 manifest; unit tests replay them. The
