@@ -1832,6 +1832,54 @@ describe("verify_fetched_receipt", () => {
       });
     });
 
+    it("a caller id in another surface form: no mismatch, and provenance.logId.value is the lowercase UUID", async () => {
+      const laneA = await createLaneAReplay();
+      const chain = await createChainReplay();
+      const dashlessUpper = PUBLICATIONS_LOG_ID.replace(
+        /-/g,
+        "",
+      ).toUpperCase();
+      const hex = dashlessUpper.toLowerCase().slice(-32);
+      const expectedUuid = [
+        hex.slice(0, 8),
+        hex.slice(8, 12),
+        hex.slice(12, 16),
+        hex.slice(16, 20),
+        hex.slice(20, 32),
+      ].join("-");
+      const result = await withClient(
+        { fetchImpl: combineFetch(laneA, chain), env: {} },
+        (client) =>
+          client.callTool({
+            name: "verify_fetched_receipt",
+            arguments: {
+              receiptUrl: laneA.urls["receipt-self"],
+              entryId: ENTRY_ID,
+              payload: { base64: base64OfFile(STATEMENT_COSE_PATH) },
+              trust: {
+                root: "known-accumulator",
+                chain: {
+                  rpcUrl: RPC_URL,
+                  univocity: UNIVOCITY,
+                  logId: dashlessUpper,
+                  chainId: CHAIN_ID,
+                },
+              },
+            },
+          }),
+      );
+
+      expect(result.isError).toBe(false);
+      const structured = result.structuredContent as VerifyStructured;
+      expect(structured.diagnostics.map((d) => d.code)).not.toContain(
+        "receipt_log_id_mismatch",
+      );
+      expect(structured.provenance.logId).toEqual({
+        source: "caller",
+        value: expectedUuid,
+      });
+    });
+
     it("a differing chain.logId: adds receipt_log_id_mismatch with the exact message, and the chain read uses the caller's id", async () => {
       const laneA = await createLaneAReplay();
       const chain = createLenientChainReplay();

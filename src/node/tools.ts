@@ -1629,13 +1629,22 @@ async function handleVerifyFetchedReceipt(
     let effectiveLogId: string;
     if (callerLogId !== undefined) {
       effectiveLogId = callerLogId;
-      logIdProvenanceValue = { source: "caller", value: callerLogId };
       // Same normalisation rule as `toContractLogId` (ruling 4): compare
       // the zero-padded contract forms, so a dash/case/0x difference
       // alone never reads as a mismatch. A caller id that doesn't parse
       // as a log id at all is left for `resolveChainInput`/the calldata
       // build below to reject, as today.
       const callerContractForm = tryContractLogId(callerLogId);
+      // Provenance reports the id in lowercase UUID form, whatever surface
+      // form the caller used (ruling 4). An unparseable id is echoed as
+      // given; the chain step below rejects it.
+      logIdProvenanceValue = {
+        source: "caller",
+        value:
+          callerContractForm !== undefined
+            ? formatContractLogIdAsUuid(callerContractForm)
+            : callerLogId,
+      };
       const certificateContractForm =
         certificateLogId !== undefined
           ? tryContractLogId(certificateLogId)
