@@ -23,6 +23,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { verifyReceipt } from "@forestrie/mcp-verify";
+import { decodeCborDeterministic } from "@forestrie/encoding";
+import { decodeReceiptLogId } from "../../src/core/index.js";
 import { createServer, type Deps } from "../../src/node/server.js";
 import type {
   FetchedVerifyResult,
@@ -50,6 +52,81 @@ const BOOTSTRAP_LOG_ID = "67876864-3b46-67ae-dcb3-13cc81624aa5";
 const PUBLICATIONS_LOG_ID = "e8345800-a747-4e62-9409-61622b836f1f";
 const MASSIF_HEIGHT = 14;
 const ENTRY_ID = "a09a6337ee0009000000000000000008";
+
+/** The parts of a COSE_Sign1 receipt that must not change between serves. */
+interface ReceiptParts {
+  protectedHeader: Uint8Array;
+  payload: Uint8Array | null;
+  certificateProtectedHeader: Uint8Array | undefined;
+  certificateLogId: string | undefined;
+  mmrIndex: unknown;
+  path: Uint8Array[];
+}
+
+function asIntKeyMap(value: unknown): Map<number, unknown> {
+  if (value instanceof Map) return value as Map<number, unknown>;
+  const out = new Map<number, unknown>();
+  for (const [key, entry] of Object.entries(
+    (value ?? {}) as Record<string, unknown>,
+  )) {
+    out.set(Number(key), entry);
+  }
+  return out;
+}
+
+/**
+ * Decode a receipt into the parts that identify it: the protected header,
+ * the payload, the delegation certificate (unprotected label 1000), and the
+ * inclusion proof for its entry (label 396, then -1, then the first proof's
+ * {1: MMR index, 2: path}).
+ */
+function unwrapTag(value: unknown): unknown {
+  return value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !(value instanceof Uint8Array) &&
+    "value" in value
+    ? (value as { value: unknown }).value
+    : value;
+}
+
+/** The protected header of the delegation certificate's own COSE_Sign1. */
+function certificateProtectedHeader(
+  certificate: unknown,
+): Uint8Array | undefined {
+  if (!(certificate instanceof Uint8Array)) return undefined;
+  const sign1 = unwrapTag(decodeCborDeterministic(certificate)) as unknown[];
+  return sign1[0] as Uint8Array;
+}
+
+function receiptParts(bytes: Uint8Array): ReceiptParts {
+  let sign1 = decodeCborDeterministic(bytes) as unknown;
+  if (
+    sign1 !== null &&
+    typeof sign1 === "object" &&
+    !Array.isArray(sign1) &&
+    "value" in sign1
+  ) {
+    sign1 = (sign1 as { value: unknown }).value;
+  }
+  const [protectedHeader, unprotected, payload] = sign1 as [
+    Uint8Array,
+    unknown,
+    Uint8Array | null,
+    Uint8Array,
+  ];
+  const header = asIntKeyMap(unprotected);
+  const proofs = asIntKeyMap(header.get(396)).get(-1) as unknown[];
+  const proof = asIntKeyMap(proofs[0]);
+  return {
+    protectedHeader,
+    payload,
+    certificateProtectedHeader: certificateProtectedHeader(header.get(1000)),
+    certificateLogId: decodeReceiptLogId(bytes)?.logId,
+    mmrIndex: proof.get(1),
+    path: proof.get(2) as Uint8Array[],
+  };
+}
 
 const FORESTRIE_LIVE = process.env["FORESTRIE_LIVE"] === "1";
 
@@ -123,7 +200,7 @@ describe.skipIf(!FORESTRIE_LIVE)(
 
     it(
       skipMessage ??
-        "fetch_receipt (five-field form): equals the bundled receipt outside the signature bytes, verifies identically under known-log-key",
+        "fetch_receipt (five-field form): the same receipt as the bundled copy (header and MMR index identical, certificate naming the same log, bundled proof a prefix of the served proof) and verifies identically under known-log-key",
       { skip: skipMessage !== undefined },
       async () => {
         const baseUrl = process.env["FORESTRIE_BASE_URL"] as string;
@@ -148,11 +225,32 @@ describe.skipIf(!FORESTRIE_LIVE)(
         const bundledBytes = readFileSync(LANE_A_RECEIPT_PATH);
 
         // Amendment A: the operator signs afresh on every serve (ECDSA is
-        // randomised), so the two copies are byte-identical everywhere
-        // EXCEPT the last 64 bytes (the COSE Sign1 signature).
-        expect(fetchedBytes.length).toBe(bundledBytes.length);
-        expect(fetchedBytes.subarray(0, fetchedBytes.length - 64)).toEqual(
-          bundledBytes.subarray(0, bundledBytes.length - 64),
+        // randomised), so the signature bytes always differ. And once the
+        // log grows past a fold, the served receipt's inclusion proof for
+        // the same entry extends the bundled one: the MMR is append-only,
+        // so the bundled path is a prefix of the served path. Lane A showed
+        // this on 2026-09-14, path 1 -> 3 hashes after two new registrations
+        // (plan-2609-06 phase 2 gate). The delegation certificate is
+        // re-issued too: its issued-at, expiry, id and signature change (the
+        // same day, the verifier's release ran `forestrie delegate
+        // --ttl-seconds 86400`), so it must keep its protected header and
+        // name the same log, and the known-log-key comparison below proves
+        // it still chains to the same key. Everything else must be identical.
+        const fetched = receiptParts(new Uint8Array(fetchedBytes));
+        const bundled = receiptParts(new Uint8Array(bundledBytes));
+        expect(fetched.protectedHeader).toEqual(bundled.protectedHeader);
+        expect(fetched.payload).toEqual(bundled.payload);
+        expect(fetched.certificateProtectedHeader).toEqual(
+          bundled.certificateProtectedHeader,
+        );
+        expect(fetched.certificateLogId).toBe(PUBLICATIONS_LOG_ID);
+        expect(bundled.certificateLogId).toBe(PUBLICATIONS_LOG_ID);
+        expect(fetched.mmrIndex).toEqual(bundled.mmrIndex);
+        expect(fetched.path.length).toBeGreaterThanOrEqual(
+          bundled.path.length,
+        );
+        expect(fetched.path.slice(0, bundled.path.length)).toEqual(
+          bundled.path,
         );
 
         const keyXy = new Uint8Array(
