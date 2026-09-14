@@ -80,7 +80,7 @@
     "publish:dry-run": "pnpm pack && npm publish --dry-run --tag dryrun ./forestrie-mcp-resolve-*.tgz"
   },
   "dependencies": {
-    "@forestrie/mcp-verify": "0.4.0",
+    "@forestrie/mcp-verify": "0.4.1",
     "@forestrie/chain-rpc": "0.3.0",
     "@forestrie/scrapi-client": "0.2.2",
     "@forestrie/receipt-verify": "1.1.0",

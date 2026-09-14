@@ -31,17 +31,16 @@
  * DO NOT "fix" a red run here with a pnpm `overrides` entry for any of
  * these packages. An override SILENCES the exact skew this gate exists to
  * detect, by rewriting a transitive dep to a version its parent was never
- * tested against. This package's own receipt-verify and chain-rpc pins are
- * satisfiable only once @forestrie/mcp-verify publishes a version pinning
- * receipt-verify 1.1.0: today's mcp-verify 0.4.0 (npm's latest) pins
- * receipt-verify 1.0.0 exactly, which pins chain-rpc 0.2.0 exactly, so this
- * check is RED BY DESIGN on those two packages until mcp-verify bumps —
- * that is the expected, correct result of this gate doing its job, not a
- * bug to route around. scrapi-client 0.2.2 depends on encoding 0.7.0
- * exactly, matching this package's own exact pin, so those two stay
- * naturally satisfiable today. If a future dependency drags a further
- * second copy in, fix or drop that dependency (or wait for its bump),
- * never override.
+ * tested against. Today every pin is naturally satisfiable — mcp-verify
+ * 0.4.1 depends on receipt-verify 1.1.0 exactly, matching this package's
+ * own direct pin, and receipt-verify 1.1.0 in turn depends on chain-rpc
+ * 0.3.0 and encoding 0.7.0 exactly, also matching this package's own pins;
+ * scrapi-client 0.2.2 depends on encoding 0.7.0 exactly too — so there is
+ * exactly one copy of each without any coercion (this was not always true:
+ * mcp-verify 0.4.0 pinned receipt-verify 1.0.0, which pinned chain-rpc
+ * 0.2.0, until mcp-verify 0.4.1 re-pinned to receipt-verify 1.1.0,
+ * plan-2609-06 F7). If a future dependency drags a second copy in again,
+ * fix or drop that dependency (or wait for its bump), never override.
  *
  * Usage: node scripts/check-encoding-single-copy.mjs [rootDir]
  */
@@ -57,7 +56,7 @@ const EXPECTED = {
   "@forestrie/scrapi-client": "0.2.2",
   "@forestrie/receipt-verify": "1.1.0",
   "@forestrie/chain-rpc": "0.3.0",
-  "@forestrie/mcp-verify": "0.4.0",
+  "@forestrie/mcp-verify": "0.4.1",
 };
 
 /**

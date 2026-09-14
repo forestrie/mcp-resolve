@@ -80,18 +80,17 @@ transitive dependency to a version its parent was never tested against. Two
 copies of a wire-type package means two disagreeing implementations of the
 same bytes.
 
-This package's own `receipt-verify` and `chain-rpc` pins are satisfiable
-only once `@forestrie/mcp-verify` publishes a version that itself pins
-`receipt-verify` 1.1.0: today's `mcp-verify` 0.4.0 (npm's latest) pins
-`receipt-verify` 1.0.0 exactly, which pins `chain-rpc` 0.2.0 exactly — a
-second copy of each, dragged in by a dependency this package does not
-control. Until `mcp-verify` bumps, `check:encoding-single-copy` is red **by
-design** on those two packages; that is a finding to wait on or chase
-upstream, never an override to silence. `scrapi-client` 0.2.2 depends on
-`encoding` 0.7.0 exactly, matching this package's own pin, so that one
-stays naturally satisfiable today. If a future dependency drags in a
-further second copy, fix or drop that dependency, or wait for its bump —
-the same remedy, never an override.
+Today every pin is naturally satisfiable — `mcp-verify` 0.4.1 depends on
+`receipt-verify` 1.1.0 exactly, matching this package's own direct pin, and
+`receipt-verify` 1.1.0 in turn depends on `chain-rpc` 0.3.0 and `encoding`
+0.7.0 exactly, also matching this package's own pins; `scrapi-client` 0.2.2
+depends on `encoding` 0.7.0 exactly too — so there is exactly one copy of
+each without any coercion. This was not always true: `mcp-verify` 0.4.0
+pinned `receipt-verify` 1.0.0 (which pinned `chain-rpc` 0.2.0), a second
+copy of each this package did not control, until `mcp-verify` 0.4.1
+re-pinned to `receipt-verify` 1.1.0 (plan-2609-06 F7). If a future
+dependency drags in a second copy again, fix or drop that dependency, or
+wait for its bump — never an override.
 
 **`@forestrie/chain-rpc` (plan-2609-06 F7).** No longer absent: its 0.3.0
 `EthRpcOptions` gained `fetchImpl?: typeof fetch` (default

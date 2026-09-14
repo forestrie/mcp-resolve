@@ -14,9 +14,11 @@
 export const PACKAGE_VERSION = "0.1.2";
 
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-verify"] — the
- *  verifier this package composes with (N4). Asserted by
- *  test/core/version.test.ts. */
-export const VERIFIER_VERSION = "0.4.0";
+ *  verifier this package composes with (N4). 0.4.1, not 0.4.0: its only
+ *  change is re-pinning @forestrie/receipt-verify to 1.1.0 (plan-2609-06
+ *  F7), closing the skew that made check:encoding-single-copy red. Asserted
+ *  by test/core/version.test.ts. */
+export const VERIFIER_VERSION = "0.4.1";
 
 /** Keep in sync with package.json#dependencies["@forestrie/chain-rpc"] —
  *  the injectable-`fetchImpl` JSON-RPC helpers `src/net/chain.ts`'s
