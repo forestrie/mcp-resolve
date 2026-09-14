@@ -81,11 +81,12 @@ describe("SUPPORTS", () => {
 });
 
 describe("COURIER_DIAGNOSTIC_CODES", () => {
-  it("is exactly the three courier diagnostic codes, in order", () => {
+  it("is exactly the four courier diagnostic codes, in order", () => {
     expect(COURIER_DIAGNOSTIC_CODES).toEqual([
       "receipt_fetched_from_operator",
       "root_read_from_chain",
       "root_read_from_chain_history",
+      "receipt_log_id_mismatch",
     ]);
   });
 });
