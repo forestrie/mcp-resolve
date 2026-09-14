@@ -201,10 +201,12 @@ jobs:
           chmod +x ./mcp-publisher
 
       - name: mcp-publisher validate
-        # Validates server.json against the registry schema before `npm
-        # publish` runs below, so a rejection here stops the release
-        # instead of following it — the v0.1.1 failure mode (plan-2609-06
-        # F6). No `if:` — runs in rehearsals too.
+        # Validates server.json before `npm publish` runs below, so a
+        # rejection here stops the release instead of following it — the
+        # v0.1.1 failure mode (plan-2609-06 F6). It sends server.json to
+        # registry.modelcontextprotocol.io for validation: no login, but it
+        # needs network. The hermetic check is `check:server-json` in
+        # `pnpm test`. No `if:` — runs in rehearsals too.
         run: ./mcp-publisher validate
 
       - name: Pack
