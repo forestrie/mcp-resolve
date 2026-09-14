@@ -14,11 +14,15 @@ export type ProvenanceSource = "fetched" | "chain-read" | "supplied";
 /** Present only when the accumulator was selected from published
  *  `CheckpointPublished` history (F1/F2) rather than the latest `logState`
  *  read: the selected checkpoint's own block/size, and how much of the
- *  scan it cost. */
+ *  scan it cost. `blockNumber`/`blockHash`/`size` name the one checkpoint
+ *  selected out of history (`fetch_accumulator`, `verify_fetched_receipt`);
+ *  they are absent for `fetch_checkpoint_history` (F4), whose scan returns
+ *  every checkpoint in range rather than selecting one, so only the scan's
+ *  own bounds and cost apply there. */
 export type HistoryProvenance = {
-  blockNumber: number;
-  blockHash: string;
-  size: number;
+  blockNumber?: number;
+  blockHash?: string;
+  size?: number;
   scannedFrom: number;
   scannedTo: number;
   requests: number;
@@ -42,6 +46,7 @@ export type ToolName =
   | "fetch_receipt"
   | "fetch_genesis"
   | "fetch_accumulator"
+  | "fetch_checkpoint_history"
   | "verify_fetched_receipt";
 
 /** The vocabulary is trust roots and the four questions, never a ranking
@@ -63,6 +68,14 @@ export const SUPPORTS: Record<ToolName, Supports> = {
       { question: "append-authority", root: "known-accumulator" },
     ],
     note: "split-view against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, stated as inheritance, never as a local signature check",
+  },
+  fetch_checkpoint_history: {
+    rows: [
+      { question: "split-view", root: "known-accumulator" },
+      { question: "sealing", root: "known-accumulator" },
+      { question: "append-authority", root: "known-accumulator" },
+    ],
+    note: "split-view against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, stated as inheritance, never as a local signature check; a kept checkpoint answers split-view later, without another chain read, for any receipt whose peak it contains",
   },
   fetch_scitt_configuration: {
     rows: [],

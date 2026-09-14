@@ -45,12 +45,13 @@ const RPC_URL = "https://rpc.example/anything";
 const UNIVOCITY = "0x678768643b4667aedcb313cc81624aa560b7f0ca";
 const CHAIN_ID = 84532;
 
-const N2_TOOL_NAMES: ToolName[] = [
+const TOOL_NAMES: ToolName[] = [
   "fetch_scitt_configuration",
   "query_registration",
   "fetch_receipt",
   "fetch_genesis",
   "fetch_accumulator",
+  "fetch_checkpoint_history",
   "verify_fetched_receipt",
 ];
 
@@ -120,9 +121,9 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("is exactly the six N2 tools, each N5-annotated with a non-empty description", async () => {
+  it("is exactly the seven tools, each N5-annotated with a non-empty description", async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...N2_TOOL_NAMES].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
 
     for (const tool of tools) {
       expect(tool.annotations).toEqual(N5_ANNOTATIONS);

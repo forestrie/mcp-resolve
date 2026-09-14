@@ -1,6 +1,6 @@
 /**
  * Outward-facing text for the MCP adapter: the server `instructions` string
- * and the six tool descriptions. Orchestrator prose (plan-2609-05
+ * and the seven tool descriptions. Orchestrator prose (plan-2609-05
  * execution-model item 12): the vocabulary is "trust roots" and "the four
  * questions", and nothing here ranks the roots. Workers wire these strings
  * in; they do not rephrase them. The `supports` notes themselves live in
@@ -27,6 +27,7 @@ export const TOOL_TITLES: Record<ToolName, string> = {
   fetch_receipt: "Fetch receipt",
   fetch_genesis: "Fetch genesis document",
   fetch_accumulator: "Fetch accumulator from chain",
+  fetch_checkpoint_history: "Fetch checkpoint history from chain",
   verify_fetched_receipt: "Fetch and verify receipt",
 };
 
@@ -45,6 +46,9 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
 
   fetch_accumulator:
     "Read the log's published accumulator from the univocity contract at your rpcUrl: eth_chainId, then eth_getBlockByNumber latest, then one eth_call logState(logId) at that block. The contract address and chain id come from a genesis you hold ({genesis, rpcUrl, logId}) or are given explicitly ({rpcUrl, univocity, logId, chainId?}); a chain id mismatch is reported as a problem before any call. Optionally pass forReceipt (the receipt bytes with the registered payload and its entryId, or the committed grant bytes with grant true; bytes base64): if later growth has buried that receipt's peak, so the latest state no longer holds it, the tool walks the contract's CheckpointPublished history backwards within the bounds you set in chain.history and returns the newest checkpoint that holds the peak, saying so in provenance.history; running out of range is a structured problem, history_scan_exhausted. Returns the snapshot CBOR the verifier's known-accumulator root consumes, base64-encoded, with size, block number and block hash. Provenance: chain-read. Supports: split-view under known-accumulator, against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, not by a local signature check.",
+
+  fetch_checkpoint_history:
+    "Read the log's published checkpoints from the univocity contract's CheckpointPublished events at your rpcUrl, newest first, in windows of history.chunkBlocks (default 10000) walking back from the latest block to history.fromBlock, or for at most history.maxBlocks (default 200000): one eth_getLogs per window, never an unbounded scan. The contract address and chain id come from a genesis you hold or are given explicitly, as for fetch_accumulator. Returns each checkpoint's size, accumulator, block number, block hash and transaction hash, plus the same checkpoint as a known-accumulator snapshot (base64) you can keep and later pass to verify_fetched_receipt as supplied bytes; and scannedFrom, scannedTo and the number of requests made. For capture: the contract keeps only its latest state, and a receipt whose peak later growth has buried verifies only against a checkpoint that still holds that peak, so keep the ones you need. Provenance: chain-read. Supports: as fetch_accumulator, split-view under known-accumulator against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, not by a local signature check.",
 
   verify_fetched_receipt:
     "Fetch a receipt (as fetch_receipt) and verify it with @forestrie/mcp-verify's core under a trust root you supply as bytes (genesis, keyXy, accumulator, or checkpoints) or under an accumulator read from the chain in this call ({root: 'known-accumulator', chain: {genesis, rpcUrl, logId} or {rpcUrl, univocity, logId, chainId?}}). A genesis fetched in the same call is never the root. The result is the verifier's own: stages, the four questions (sealing, split-view, append-authority, attribution; not_answered_by_this_root is a real answer) and diagnostics, passed through unaltered, plus receipt_fetched_from_operator always and root_read_from_chain when the chain path was taken. If the latest chain state no longer holds the receipt's peak, the chain path walks CheckpointPublished history backwards within the bounds in chain.history (default 200000 blocks in windows of 10000, one eth_getLogs each) and verifies under the newest checkpoint that holds it, adding root_read_from_chain_history; running out of range is the structured problem history_scan_exhausted. Supply payload bytes and the entry id to have attribution answered.",

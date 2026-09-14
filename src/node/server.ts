@@ -13,7 +13,8 @@
  * `registerTool` at all turns the `tools` capability on and wires
  * `tools/list`, so the phase 1 empty-tools escape hatch
  * (`registerCapabilities` + a hand-set `ListToolsRequestSchema` handler) is
- * gone.
+ * gone. plan-2609-06 F4 adds a seventh, `fetch_checkpoint_history`, right
+ * after `fetch_accumulator`, with the same N5 annotations.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PACKAGE_VERSION } from "../core/index.js";
@@ -21,6 +22,8 @@ import { INSTRUCTIONS, TOOL_DESCRIPTIONS, TOOL_TITLES } from "./text.js";
 import {
   fetchAccumulatorInputShape,
   fetchAccumulatorOutputShape,
+  fetchCheckpointHistoryInputShape,
+  fetchCheckpointHistoryOutputShape,
   fetchGenesisInputShape,
   fetchGenesisOutputShape,
   fetchReceiptInputShape,
@@ -32,6 +35,7 @@ import {
   verifyFetchedReceiptInputShape,
   verifyFetchedReceiptOutputShape,
   makeFetchAccumulatorTool,
+  makeFetchCheckpointHistoryTool,
   makeFetchGenesisTool,
   makeFetchReceiptTool,
   makeFetchScittConfigurationTool,
@@ -138,6 +142,18 @@ export function createServer(deps?: Deps): McpServer {
       annotations: ANNOTATIONS,
     },
     makeFetchAccumulatorTool(resolved),
+  );
+
+  server.registerTool(
+    "fetch_checkpoint_history",
+    {
+      title: TOOL_TITLES.fetch_checkpoint_history,
+      description: TOOL_DESCRIPTIONS.fetch_checkpoint_history,
+      inputSchema: fetchCheckpointHistoryInputShape,
+      outputSchema: fetchCheckpointHistoryOutputShape,
+      annotations: ANNOTATIONS,
+    },
+    makeFetchCheckpointHistoryTool(resolved),
   );
 
   server.registerTool(

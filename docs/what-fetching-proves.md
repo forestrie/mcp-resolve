@@ -91,6 +91,51 @@ from a default, never from the operator inside the call, and never from an
 environment variable. The RPC URL is your own chain access; the package
 ships no provider.
 
+### `fetch_checkpoint_history` — the same questions as `fetch_accumulator`, for checkpoints you keep
+
+> split-view against the chain rather than the operator; sealing and
+> append-authority by inheritance from the contract's publish-time checks,
+> stated as inheritance, never as a local signature check; a kept checkpoint
+> answers split-view later, without another chain read, for any receipt
+> whose peak it contains
+
+The contract keeps only a log's latest state. Every publication, though,
+was an event, `CheckpointPublished`, carrying the checkpoint's size and its
+full accumulator, and events stay in the chain's history. This tool reads
+them back: newest first, in windows of a size you set, one `eth_getLogs`
+request per window, stopping at the block or the block count you gave it.
+It never scans from the chain's first block.
+
+Why anyone would want an old checkpoint: a receipt's inclusion proof leads
+to one peak of the log as it stood when the receipt was issued. Later growth
+folds peaks together, so the latest accumulator may no longer contain that
+peak even though the entry is still in the log. The verifier reports that
+as `peak_not_in_known_accumulator` and asks for a fresh snapshot; a
+checkpoint published when the peak was still standing is that snapshot.
+`verify_fetched_receipt`'s chain path and `fetch_accumulator` (given
+`forReceipt`) do this look-back for you, within the bounds you set in
+`history`, and say so with the diagnostic `root_read_from_chain_history`:
+
+> the accumulator was selected from published checkpoint history in this
+> call, at the caller's RPC URL
+
+The trust root is the same, `known-accumulator`, and so are the questions
+it supports and the reason it supports them: the checkpoint was read from
+the chain, not from the operator, and the contract refused to publish it
+unless its signature and consistency proof passed. What the event scan adds
+is reach, not a different kind of evidence. The result reports how many
+requests the reach cost, and running out of range is a structured problem,
+`history_scan_exhausted`, that tells you where the scan started and
+stopped, so you can decide whether to widen it.
+
+Each checkpoint comes back both decoded and as a `known-accumulator`
+snapshot you can keep and later pass to `verify_fetched_receipt` as
+supplied bytes. That is the capture use, the same as `fetch_genesis`:
+obtain once, keep, reuse. A kept checkpoint of size _S_ holds the peaks of
+the log at _S_; it answers split-view for any receipt whose peak is among
+them, and for no other, which is why the tool returns the history rather
+than one state.
+
 ### `fetch_scitt_configuration` — supports none of the four questions
 
 > operator self-description; evidence for none of the four questions

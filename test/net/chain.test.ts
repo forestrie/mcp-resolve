@@ -2,6 +2,7 @@ import { decodeKnownAccumulator } from "@forestrie/receipt-verify";
 import { describe, expect, it } from "vitest";
 import {
   fetchAccumulatorSnapshot,
+  readChainHead,
   readLogState,
 } from "../../src/net/index.js";
 import { createChainReplay } from "./replay.js";
@@ -197,6 +198,72 @@ describe("fetchAccumulatorSnapshot", () => {
         expected: 1,
         actual: CHAIN_ID,
       },
+    });
+  });
+});
+
+describe("readChainHead", () => {
+  it("makes exactly the first two calls (no eth_call) and decodes chainId/blockNumber/blockHash", async () => {
+    const replay = await createChainReplay();
+
+    const result = await readChainHead(
+      { rpcUrl: RPC_URL },
+      { fetchImpl: replay.fetch },
+    );
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") throw new Error("unreachable");
+    expect(result.chainId).toBe(CHAIN_ID);
+    expect(result.blockNumber).toBe(BLOCK_NUMBER);
+    expect(result.blockHash).toBe(BLOCK_HASH);
+    expect(result.rpcUrl).toBe(RPC_URL);
+
+    expect(replay.calls).toHaveLength(2);
+    const bodies = replay.calls.map(
+      (c) => (JSON.parse(String(c.init?.body)) as { method: string }).method,
+    );
+    expect(bodies).toEqual(["eth_chainId", "eth_getBlockByNumber"]);
+  });
+
+  it("returns rpc_chain_id_mismatch after exactly one call when expectedChainId differs", async () => {
+    const replay = await createChainReplay();
+
+    const result = await readChainHead(
+      { rpcUrl: RPC_URL, expectedChainId: 1 },
+      { fetchImpl: replay.fetch },
+    );
+
+    expect(result).toEqual({
+      kind: "problem",
+      problem: {
+        code: "rpc_chain_id_mismatch",
+        expected: 1,
+        actual: CHAIN_ID,
+      },
+    });
+    expect(replay.calls).toHaveLength(1);
+  });
+
+  it("returns rpc_error for a JSON-RPC error body, never a throw", async () => {
+    const replay = await createChainReplay({
+      eth_chainId: {
+        status: 200,
+        response: {
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32000, message: "boom" },
+        },
+      },
+    });
+
+    const result = await readChainHead(
+      { rpcUrl: RPC_URL },
+      { fetchImpl: replay.fetch },
+    );
+
+    expect(result).toEqual({
+      kind: "problem",
+      problem: { code: "rpc_error", status: 200, message: "boom" },
     });
   });
 });

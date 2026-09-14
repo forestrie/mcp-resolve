@@ -4,12 +4,14 @@
  * `eth_call { to: univocity, data: logStateCalldata(logId) }` at that
  * block's number. No `@forestrie/chain-rpc` — its `EthRpcOptions` has no
  * `fetchImpl` injection point (AGENTS.md, N4 amendment B), so this module
- * makes the three POSTs itself, each through the injected `fetchImpl`.
+ * makes the POSTs itself, each through the injected `fetchImpl`. Also here:
+ * `readChainHead` (plan-2609-06 F4), the same first two calls without the
+ * `eth_call`, for `fetch_checkpoint_history`, which has no use for `logState`.
  *
  * A JSON-RPC-level `error` member, a non-2xx status, or an unusable result
  * shape is returned as a structured `{ kind: "problem", problem }` — never
  * thrown, per N8 and this step's spec. `NetError` is thrown only when no
- * response was obtained at all for one of the three calls.
+ * response was obtained at all for one of the calls.
  */
 import {
   buildKnownAccumulator,
@@ -139,23 +141,30 @@ export async function callJsonRpc(
   return { ok: true, result: (parsed as { result: unknown }).result };
 }
 
+type ChainHeadOutcome =
+  | {
+      kind: "ok";
+      chainId: number;
+      blockNumber: bigint;
+      blockHash: string;
+      blockNumberHex: string;
+    }
+  | { kind: "problem"; problem: LogStateProblem };
+
 /**
  * `eth_chainId` -> (if `expectedChainId` given and it differs, RETURN a
  * `rpc_chain_id_mismatch` problem before any further call, N2 amendment A)
- * -> `eth_getBlockByNumber("latest", false)` -> `eth_call` for `logState`
- * at that block. Ids 1, 2, 3.
+ * -> `eth_getBlockByNumber("latest", false)`. Ids 1, 2 — shared by
+ * `readLogState` below (which continues with `eth_call` at id 3) and
+ * `readChainHead` (plan-2609-06 F4), which stops here:
+ * `fetch_checkpoint_history` needs only the latest block, never `logState`.
  */
-export async function readLogState(
-  input: ReadLogStateInput,
-  opts?: FetchOptions,
-): Promise<ReadLogStateResult> {
-  const chainIdCall = await callJsonRpc(
-    input.rpcUrl,
-    1,
-    "eth_chainId",
-    [],
-    opts,
-  );
+async function readChainIdAndLatestBlock(
+  rpcUrl: string,
+  expectedChainId: number | undefined,
+  opts: FetchOptions | undefined,
+): Promise<ChainHeadOutcome> {
+  const chainIdCall = await callJsonRpc(rpcUrl, 1, "eth_chainId", [], opts);
   if (!chainIdCall.ok) return chainIdCall.result;
   if (typeof chainIdCall.result !== "string") {
     return rpcErrorProblem(
@@ -164,22 +173,19 @@ export async function readLogState(
     );
   }
   const chainId = Number(hexToBigint(chainIdCall.result));
-  if (
-    input.expectedChainId !== undefined &&
-    chainId !== input.expectedChainId
-  ) {
+  if (expectedChainId !== undefined && chainId !== expectedChainId) {
     return {
       kind: "problem",
       problem: {
         code: "rpc_chain_id_mismatch",
-        expected: input.expectedChainId,
+        expected: expectedChainId,
         actual: chainId,
       },
     };
   }
 
   const blockCall = await callJsonRpc(
-    input.rpcUrl,
+    rpcUrl,
     2,
     "eth_getBlockByNumber",
     ["latest", false],
@@ -193,8 +199,32 @@ export async function readLogState(
       "eth_getBlockByNumber result missing number/hash",
     );
   }
-  const blockNumber = hexToBigint(block.number);
-  const blockHash = block.hash;
+
+  return {
+    kind: "ok",
+    chainId,
+    blockNumber: hexToBigint(block.number),
+    blockHash: block.hash,
+    blockNumberHex: block.number,
+  };
+}
+
+/**
+ * `eth_chainId` -> (if `expectedChainId` given and it differs, RETURN a
+ * `rpc_chain_id_mismatch` problem before any further call, N2 amendment A)
+ * -> `eth_getBlockByNumber("latest", false)` -> `eth_call` for `logState`
+ * at that block. Ids 1, 2, 3.
+ */
+export async function readLogState(
+  input: ReadLogStateInput,
+  opts?: FetchOptions,
+): Promise<ReadLogStateResult> {
+  const head = await readChainIdAndLatestBlock(
+    input.rpcUrl,
+    input.expectedChainId,
+    opts,
+  );
+  if (head.kind === "problem") return head;
 
   const callResult = await callJsonRpc(
     input.rpcUrl,
@@ -202,7 +232,7 @@ export async function readLogState(
     "eth_call",
     [
       { to: input.univocity, data: logStateCalldata(input.logId) },
-      block.number,
+      head.blockNumberHex,
     ],
     opts,
   );
@@ -214,13 +244,60 @@ export async function readLogState(
   const at = new Date().toISOString();
   return {
     kind: "ok",
-    chainId,
-    blockNumber,
-    blockHash,
+    chainId: head.chainId,
+    blockNumber: head.blockNumber,
+    blockHash: head.blockHash,
     resultHex: callResult.result,
     at,
     rpcUrl: input.rpcUrl,
     univocity: input.univocity,
+  };
+}
+
+export type ReadChainHeadInput = {
+  rpcUrl: string;
+  expectedChainId?: number;
+};
+
+export type ReadChainHeadResult =
+  | {
+      kind: "ok";
+      chainId: number;
+      blockNumber: bigint;
+      blockHash: string;
+      at: string;
+      rpcUrl: string;
+    }
+  | { kind: "problem"; problem: LogStateProblem };
+
+/**
+ * `eth_chainId` -> `eth_getBlockByNumber("latest", false)`, and nothing
+ * else — no `eth_call` (plan-2609-06 F4). `fetch_checkpoint_history` scans
+ * `CheckpointPublished` history from the latest block; it never reads
+ * `logState` itself. `@forestrie/chain-rpc` has no `fetchImpl` injection
+ * point (AGENTS.md, N4 amendment B), so — as with the rest of this module —
+ * this is a small function making only the two calls this tool needs
+ * through the injected `fetchImpl`, rather than a call to `readLogState`
+ * that would always make the third, unneeded, `eth_call`.
+ */
+export async function readChainHead(
+  input: ReadChainHeadInput,
+  opts?: FetchOptions,
+): Promise<ReadChainHeadResult> {
+  const head = await readChainIdAndLatestBlock(
+    input.rpcUrl,
+    input.expectedChainId,
+    opts,
+  );
+  if (head.kind === "problem") return head;
+
+  return {
+    kind: "ok",
+    chainId: head.chainId,
+    blockNumber: head.blockNumber,
+    blockHash: head.blockHash,
+    at: new Date().toISOString(),
+    rpcUrl: input.rpcUrl,
   };
 }
 
