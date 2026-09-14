@@ -113,6 +113,8 @@ describe("scanCheckpointHistory", () => {
 
     expect(result.kind).toBe("problem");
     if (result.kind !== "problem") throw new Error("unreachable");
+    // status is recovered from the real Response, not from ethRpc's own
+    // message text — see the matching note in test/net/chain.test.ts.
     expect(result.problem).toEqual({
       code: "rpc_error",
       status: 200,

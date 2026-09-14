@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  CHAIN_RPC_VERSION,
   ENCODING_VERSION,
   PACKAGE_VERSION,
   RECEIPT_VERIFY_VERSION,
@@ -27,6 +28,10 @@ describe("version constants agree with package.json", () => {
 
   it("VERIFIER_VERSION === package.json#dependencies['@forestrie/mcp-verify']", () => {
     expect(VERIFIER_VERSION).toBe(pkg.dependencies["@forestrie/mcp-verify"]);
+  });
+
+  it("CHAIN_RPC_VERSION === package.json#dependencies['@forestrie/chain-rpc']", () => {
+    expect(CHAIN_RPC_VERSION).toBe(pkg.dependencies["@forestrie/chain-rpc"]);
   });
 
   it("SCRAPI_CLIENT_VERSION === package.json#dependencies['@forestrie/scrapi-client']", () => {

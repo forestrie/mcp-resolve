@@ -1,13 +1,15 @@
 {
   "capturedAt": "2026-09-13T14:23:08Z",
   "files": {
-    "PROVENANCE.md": "4c47787e619ecb5f15a7395213e93af17de10949f73671f4d178a558b424c67b",
+    "PROVENANCE.md": "ef2b79bf14e13a496c4c2d1bb2dbb290f33412514b472a8a622e46f7f550d56f",
     "genesis.cbor": "c6183184d805bf23652a265d7f533101eec5c97e1939dd90c7f142e6d502da68",
     "genesis.headers.txt": "a3128925b32fc6709d4273b56ded818bc56b9e5668da3a5179fabd665249124f",
     "genesis.meta.json": "d312d90ff80d96ae8b062b09878ac38eb06ca1e1b49950a4c34a382bba090383",
+    "log-key.xy.b64": "b48749628f1b20c8bd822fc317a36da4709fafc92849658973aa5743baf811c7",
     "receipt-self.cbor": "55e7edf2a65c39681cb01fc1d6b5b6bf9273b82bd741954be63c8d6f2ef85fbe",
     "receipt-self.headers.txt": "8f6cd41b36ae86c3874a7d25778fcd6f7db86ff0666fd15d3a91c1e150a6dff3",
     "receipt-self.meta.json": "ab7c07651b560fd303bd11de1219cb7d0823d7229e25f4c4d13fd09408dac97b",
+    "statement.cose": "7c29bb57bae35044f722f4842c91a38b6fae51a5405a95caf9b27c9b894e2166",
     "status-self.headers.txt": "0520a73497a74469f5904f411c5e3ff53e00ba6a76ae0e7fcb7d4cef8ba9f999",
     "status-self.meta.json": "4bba7a2452d151c7d72484e4364f5e646dd09a8a84b2f78484bf42e8d982c411",
     "status-unknown.headers.txt": "30c05fb3a7a203b2f3a0b9b24051ea2b9c15ad3b70bfc2444bcc2369044df671",

@@ -21,13 +21,20 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
+import { encodeCborDeterministic } from "@forestrie/encoding";
 import { verifyReceipt } from "@forestrie/mcp-verify";
 import { decodeKnownAccumulator } from "@forestrie/receipt-verify";
 import { encodeGrantPayloadV0Canonical } from "@forestrie/encoding";
 import { createServer, type Deps } from "../../src/node/server.js";
 import {
   COURIER_DIAGNOSTIC_CODES,
+  FOREST_GENESIS_LABEL_CHAIN_ID,
+  FOREST_GENESIS_LABEL_GENESIS_VERSION,
+  FOREST_GENESIS_LABEL_LOG_ID,
+  FOREST_GENESIS_LABEL_UNIVOCITY_ADDR,
+  FOREST_GENESIS_SCHEMA_V2,
   SUPPORTS,
+  genesisUrl,
   type FetchedVerifyResult,
   type Provenance,
   type Supports,
@@ -48,6 +55,19 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LANE_A_DIR = path.join(HERE, "..", "fixtures", "lane-a");
 const SYNTHETIC_DIR = path.join(HERE, "..", "fixtures", "synthetic");
+/**
+ * The INSTALLED `@forestrie/mcp-verify`'s own `fixtures/self/` —
+ * regenerated at every mcp-verify release (a fresh entry id, statement and
+ * receipt each time; confirmed identical only for `log-key.xy.b64` across
+ * 0.4.0 and 0.4.1). Never a source for anything that must pair with
+ * `ENTRY_ID`, `SELF_CONTENT_HASH` or `LANE_A_RECEIPT_PATH` — those are
+ * pinned to mcp-verify 0.4.0's self-registration, and the vendored copies
+ * in `test/fixtures/lane-a/` (`STATEMENT_COSE_PATH`, `LOG_KEY_PATH`) are
+ * the ones that pair with them. The one legitimate use left is the
+ * "bundled fixture verifies under its own bundle" check below, which reads
+ * its entry id, statement AND receipt all from this same directory — never
+ * mixed with the pinned/vendored constants.
+ */
 const VERIFY_FIXTURES_DIR = path.join(
   HERE,
   "..",
@@ -105,9 +125,24 @@ function utf8OfFile(filePath: string): string {
   return readFileSync(filePath, "utf8").trim();
 }
 
-const STATEMENT_COSE_PATH = path.join(VERIFY_FIXTURES_DIR, "statement.cose");
-const LOG_KEY_PATH = path.join(VERIFY_FIXTURES_DIR, "log-key.xy.b64");
+/** Vendored byte-for-byte from the published mcp-verify 0.4.0 tarball's
+ *  `fixtures/self/` (test/fixtures/lane-a/PROVENANCE.md) — the pair that
+ *  actually matches `ENTRY_ID`/`SELF_CONTENT_HASH`/`LANE_A_RECEIPT_PATH`,
+ *  unlike whatever mcp-verify happens to have installed. */
+const STATEMENT_COSE_PATH = path.join(LANE_A_DIR, "statement.cose");
+const LOG_KEY_PATH = path.join(LANE_A_DIR, "log-key.xy.b64");
+/** The INSTALLED bundle's own receipt — used only by the "bundled fixture
+ *  verifies under its own bundle" check, alongside `BUNDLED_STATEMENT_COSE_PATH`
+ *  and `BUNDLED_ENTRY_ID` (read from the same installed `fixtures/self/`),
+ *  never alongside the pinned/vendored constants above. */
 const BUNDLED_RECEIPT_PATH = path.join(VERIFY_FIXTURES_DIR, "receipt.cbor");
+const BUNDLED_STATEMENT_COSE_PATH = path.join(
+  VERIFY_FIXTURES_DIR,
+  "statement.cose",
+);
+const BUNDLED_ENTRY_ID = utf8OfFile(
+  path.join(VERIFY_FIXTURES_DIR, "entry-id.txt"),
+);
 const LANE_A_GENESIS_PATH = path.join(LANE_A_DIR, "genesis.cbor");
 const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
 /** The synthetic buried-peak fixture's fabricated "latest" `logState`
@@ -232,6 +267,57 @@ function rejectingFetch(message = "boom"): typeof fetch {
   return (async () => {
     throw new Error(message);
   }) as unknown as typeof fetch;
+}
+
+/* -------- plan-2609-06 F7: a synthetic KS256-bootstrap-key genesis -------- *
+ * `@forestrie/receipt-verify` 1.1.0 (`src/forest-genesis-labels.ts`) names
+ * these two labels only from an internal module with no subpath export
+ * (`package.json#exports` lists only "."), so they are hand-copied here —
+ * the same reason genesis-binding.test.ts's own `buildGenesis` helper
+ * hand-sets label -68014 as filler already. FOREST_GENESIS_LABEL_GENESIS_ALG
+ * = -68014, FOREST_GENESIS_LABEL_BOOTSTRAP_KEY = -68015; COSE_ALG_KS256 =
+ * -65799 (`src/cose-key.ts`). A v2 genesis with alg KS256 has no P-256
+ * public key to give up — `decodeTrustRootDetailsFromGenesis`'s
+ * `bootstrapKeyXy` is `undefined` for it, on-chain-address KS256 root
+ * decode taking the bootstrap key's 20 raw bytes instead. */
+const FOREST_GENESIS_LABEL_GENESIS_ALG = -68014;
+const FOREST_GENESIS_LABEL_BOOTSTRAP_KEY = -68015;
+const COSE_ALG_KS256 = -65799;
+
+const KS256_GENESIS_UNIVOCITY = new Uint8Array(20).fill(3);
+const KS256_GENESIS_CHAIN_ID = "84532";
+const KS256_GENESIS_LOG_ID_WIRE = (() => {
+  const wire = new Uint8Array(32);
+  wire.set(KS256_GENESIS_UNIVOCITY.slice(0, 16), 16);
+  return wire;
+})();
+const KS256_BOOTSTRAP_ADDRESS = new Uint8Array(20).fill(9);
+
+function buildKs256Genesis(): Uint8Array {
+  const map = new Map<number, unknown>([
+    [FOREST_GENESIS_LABEL_GENESIS_VERSION, FOREST_GENESIS_SCHEMA_V2],
+    [FOREST_GENESIS_LABEL_UNIVOCITY_ADDR, KS256_GENESIS_UNIVOCITY],
+    [FOREST_GENESIS_LABEL_CHAIN_ID, KS256_GENESIS_CHAIN_ID],
+    [FOREST_GENESIS_LABEL_LOG_ID, KS256_GENESIS_LOG_ID_WIRE],
+    [FOREST_GENESIS_LABEL_GENESIS_ALG, COSE_ALG_KS256],
+    [FOREST_GENESIS_LABEL_BOOTSTRAP_KEY, KS256_BOOTSTRAP_ADDRESS],
+  ]);
+  return encodeCborDeterministic(map);
+}
+
+function createKs256GenesisFetch(): { fetch: typeof fetch; calls: string[] } {
+  const body = buildKs256Genesis();
+  const calls: string[] = [];
+  const fetchImpl = (async (
+    input: Parameters<typeof fetch>[0],
+  ): Promise<Response> => {
+    calls.push(requestUrl(input));
+    return new Response(body as unknown as BodyInit, {
+      status: 200,
+      headers: { "content-type": "application/cbor" },
+    });
+  }) as unknown as typeof fetch;
+  return { fetch: fetchImpl, calls };
 }
 
 /** Connect a fresh in-memory client/server pair, run `fn`, then close —
@@ -621,6 +707,7 @@ describe("fetch_genesis", () => {
         chainId: number;
         forestLogId: string;
       };
+      bootstrapKeyXy?: string;
       provenance: Provenance;
       supports: Supports;
     };
@@ -633,6 +720,13 @@ describe("fetch_genesis", () => {
     expect(structured.supports.rows).toEqual([
       { question: "sealing", root: "known-log-key" },
     ]);
+    // plan-2609-06 F7: the bootstrap public key as x‖y hex (64 bytes -> 128
+    // hex chars), decoded straight from the genesis bytes via
+    // decodeTrustRootDetailsFromGenesis — the lane-A fixture's bootstrap
+    // key is ES256, verified against a direct decode of genesis.cbor.
+    expect(structured.bootstrapKeyXy).toBe(
+      "4284403053a157bf6976be27e0c0bdf746da8d9d4269a211b99505b0f977ae1e2856fb3b2b009ac46403328bc3ea6869b13459bbbacfb1dc545f9f782712486c",
+    );
 
     const first = (result.content as unknown[])[0] as {
       type: string;
@@ -662,6 +756,35 @@ describe("fetch_genesis", () => {
     expect(structured.problem.status).toBe(429);
     expect(structured.problem.retryAfterMs).toBe(60_000);
     expect(synthetic.calls).toHaveLength(1);
+  });
+
+  it("a KS256 bootstrap key omits bootstrapKeyXy rather than failing (plan-2609-06 F7)", async () => {
+    const synthetic = createKs256GenesisFetch();
+    const result = await withClient(
+      { fetchImpl: synthetic.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_genesis",
+          arguments: { baseUrl: BASE_URL, logId: BOOTSTRAP_LOG_ID },
+        }),
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      chainBinding: { univocity: string; chainId: number };
+      bootstrapKeyXy?: string;
+      problem?: unknown;
+    };
+    expect(structured.problem).toBeUndefined();
+    expect(structured.chainBinding.univocity).toBe(
+      `0x${Buffer.from(KS256_GENESIS_UNIVOCITY).toString("hex")}`,
+    );
+    expect(structured.chainBinding.chainId).toBe(84532);
+    expect(structured.bootstrapKeyXy).toBeUndefined();
+    expect(synthetic.calls).toHaveLength(1);
+    // The genesis URL this fetch actually asked for, confirming the fake
+    // was wired to the tool call rather than trivially vacuous.
+    expect(synthetic.calls[0]).toBe(genesisUrl(BASE_URL, BOOTSTRAP_LOG_ID));
   });
 });
 
@@ -1213,16 +1336,26 @@ describe("verify_fetched_receipt", () => {
       direct.diagnostics,
     );
 
-    // Amendment A: the receipt lane A serves differs from the verifier's
-    // bundled fixtures/self/receipt.cbor only in the last 64 (COSE
-    // signature) bytes; the bundled copy verifies to the same questions.
+    // The INSTALLED mcp-verify's own bundled fixtures/self/ is a fresh
+    // self-registration every release — a different entry id, statement
+    // and receipt each time (only log-key.xy.b64 has stayed byte-identical
+    // across 0.4.0 and 0.4.1) — so it no longer pairs with ENTRY_ID or the
+    // vendored STATEMENT_COSE_PATH the way it did when Amendment A was
+    // written against 0.4.0. This check reads its entry id, statement and
+    // receipt all from that same installed bundle instead, and asserts
+    // only that the bundle verifies under its own terms (sealing and
+    // attribution ok, under the log key both fixture generations share) —
+    // not that it reproduces lane-A's specific questions, which was a
+    // coincidence of 0.4.0's fixture pairing, not a general guarantee.
     const bundledDirect = await verifyReceipt({
       receipt: new Uint8Array(readFileSync(BUNDLED_RECEIPT_PATH)),
-      payload: new Uint8Array(readFileSync(STATEMENT_COSE_PATH)),
-      entryId: ENTRY_ID,
+      payload: new Uint8Array(readFileSync(BUNDLED_STATEMENT_COSE_PATH)),
+      entryId: BUNDLED_ENTRY_ID,
       trust,
     });
-    expect(bundledDirect.questions).toEqual(direct.questions);
+    expect(bundledDirect.ok).toBe(true);
+    expect(bundledDirect.questions["sealing"]?.status).toBe("ok");
+    expect(bundledDirect.questions["attribution"]?.status).toBe("ok");
   });
 
   it("known-accumulator, explicit chain: four requests, both courier diagnostics, split-view ok, binding explicit", async () => {

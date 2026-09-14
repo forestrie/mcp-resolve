@@ -59,8 +59,12 @@ describe("readLogState", () => {
       replay.fixture.calls["eth_call"]!.request.params,
     );
     for (const call of replay.calls) {
+      // @forestrie/chain-rpc's `ethRpc` (plan-2609-06 F7) sends
+      // `Content-Type` (capital C), not this module's own prior
+      // `content-type` — a wire-equivalent, case-only difference; HTTP
+      // header names are case-insensitive.
       expect(call.init?.headers).toMatchObject({
-        "content-type": "application/json",
+        "Content-Type": "application/json",
       });
     }
   });
@@ -106,11 +110,44 @@ describe("readLogState", () => {
       { fetchImpl: replay.fetch },
     );
 
+    // @forestrie/chain-rpc's `ethRpc` (F7) itself drops the HTTP status for
+    // a JSON-RPC-level error (its own thrown message is just
+    // `error.message`) — `callJsonRpc` recovers it from the real
+    // `Response.status` of the one request this makes, not from ethRpc's
+    // message text, so `status` is still exactly what it was pre-F7.
     expect(result).toEqual({
       kind: "problem",
       problem: { code: "rpc_error", status: 200, message: "boom" },
     });
     expect(replay.calls).toHaveLength(1);
+  });
+
+  it("returns rpc_error with status 200 for a JSON-RPC error on the eth_call step (not just the first call)", async () => {
+    const replay = await createChainReplay({
+      eth_call: {
+        status: 200,
+        response: {
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32000, message: "execution reverted" },
+        },
+      },
+    });
+
+    const result = await readLogState(
+      { rpcUrl: RPC_URL, univocity: UNIVOCITY, logId: LOG_ID },
+      { fetchImpl: replay.fetch },
+    );
+
+    expect(result).toEqual({
+      kind: "problem",
+      problem: {
+        code: "rpc_error",
+        status: 200,
+        message: "execution reverted",
+      },
+    });
+    expect(replay.calls).toHaveLength(3);
   });
 
   it("throws NetError(network) when fetchImpl rejects", async () => {
@@ -261,9 +298,37 @@ describe("readChainHead", () => {
       { fetchImpl: replay.fetch },
     );
 
+    // See the matching note on readLogState's own "JSON-RPC error body"
+    // test above: status is recovered from the real Response, not from
+    // ethRpc's own message text.
     expect(result).toEqual({
       kind: "problem",
       problem: { code: "rpc_error", status: 200, message: "boom" },
     });
+  });
+});
+
+describe("the chain path always goes through the injected fetchImpl (F7)", () => {
+  it("never touches globalThis.fetch, even when it throws (readLogState, via ethRpc)", async () => {
+    const replay = await createChainReplay();
+    const originalFetch = globalThis.fetch;
+    let globalFetchCalls = 0;
+    globalThis.fetch = (() => {
+      globalFetchCalls += 1;
+      throw new Error(
+        "globalThis.fetch must never be called directly by src/net/chain.ts",
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const result = await readLogState(
+        { rpcUrl: RPC_URL, univocity: UNIVOCITY, logId: LOG_ID },
+        { fetchImpl: replay.fetch },
+      );
+      expect(result.kind).toBe("ok");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(globalFetchCalls).toBe(0);
+    expect(replay.calls).toHaveLength(3);
   });
 });

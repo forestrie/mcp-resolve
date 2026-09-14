@@ -64,6 +64,12 @@ example lane, not a default (N8). The publications log
 No `ratelimit-*` headers were present; every response carried `cf-ray`. No
 request returned 429.
 
+`statement.cose` and `log-key.xy.b64` are copied byte-for-byte from the
+published `@forestrie/mcp-verify` 0.4.0 tarball's `fixtures/self/`, the
+release self-registration of which `receipt-self.cbor` is a served copy.
+Tests read them from here, never from the installed mcp-verify, whose
+`fixtures/self/` is regenerated at every release.
+
 These files are FROZEN (N6 gate 6, execution-model item 10). `manifest.json`
 carries the sha256 of every file here except itself. A new capture is a new
 orchestrator-authorised runner step, never a worker fetch.
