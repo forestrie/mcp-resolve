@@ -7,12 +7,9 @@ registration status, a service configuration. Every result says where its
 bytes came from and which of the four questions of the trust model they can
 support. Listed in the MCP registry as `dev.forestrie/resolve`.
 
-This package is the courier, not the verifier. The verifier runs entirely in
-your process with no network, no account, no key and no backend, and its
-own rule is that installing it can never imply a network dependency. So
-anything that fetches lives here, under a separate name, and depends on the
-verifier's published core at an exact version pin. The verifier never
-depends on this package.
+The verifier runs entirely in your process with no network, no account, 
+no key and no backend, and its own rule is that installing it can never imply a 
+network dependency. So anything that fetches lives here.
 
 ## Use
 
