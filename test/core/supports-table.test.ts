@@ -1,5 +1,5 @@
 /**
- * The N3 rows and notes are orchestrator prose, copied verbatim into
+ * The `supports` rows and notes are fixed wording, kept in
  * src/core/provenance.ts. This test asserts every row and note against a
  * SECOND, independent literal copy, so a drift in either file is red —
  * never a shared constant that could drift in step.
@@ -48,7 +48,7 @@ const EXPECTED_SUPPORTS = {
 } as const;
 
 describe("SUPPORTS", () => {
-  it("has exactly the N3 tool names", () => {
+  it("has exactly the seven tool names", () => {
     expect(Object.keys(SUPPORTS).sort()).toEqual(
       Object.keys(EXPECTED_SUPPORTS).sort(),
     );
@@ -57,7 +57,7 @@ describe("SUPPORTS", () => {
   for (const tool of Object.keys(EXPECTED_SUPPORTS) as Array<
     keyof typeof EXPECTED_SUPPORTS
   >) {
-    it(`${tool}: rows and note match N3 verbatim`, () => {
+    it(`${tool}: rows and note match verbatim`, () => {
       expect(SUPPORTS[tool].note).toBe(EXPECTED_SUPPORTS[tool].note);
       expect(SUPPORTS[tool].rows).toEqual(EXPECTED_SUPPORTS[tool].rows);
     });

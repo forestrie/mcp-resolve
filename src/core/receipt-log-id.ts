@@ -1,6 +1,6 @@
 /**
- * Decode the log id a receipt's own delegation certificate names
- * (plan-2609-06 F3, decision F3): claim `1` of the nested COSE_Sign1 the
+ * Decode the log id a receipt's own delegation certificate names: claim
+ * `1` of the nested COSE_Sign1 the
  * outer receipt's unprotected header carries at label `1000` — the
  * delegation certificate the operator attached when it delegated signing
  * authority for this receipt. That claim is the certificate's own
@@ -17,9 +17,9 @@
  * Never throws: a receipt with no certificate at label `1000`, a
  * certificate that isn't a decodable COSE_Sign1, a certificate payload
  * with no claim `1`, or a claim `1` that isn't 32 or 64 hex characters,
- * all return `undefined` rather than an error — F3 is a cross-check and a
- * fallback default, not a validation gate on receipts that predate it or
- * never carry a certificate.
+ * all return `undefined` rather than an error — this is a cross-check and a
+ * fallback default, not a validation gate on receipts that carry no
+ * certificate.
  */
 import {
   decodeCborDeterministic,

@@ -1,8 +1,8 @@
 /**
  * Response classification: status + content-type + body -> one of the
- * shapes `src/net` (phase 2) hands back to a tool, or a structured
- * `problem` (N8: a 429, or anything else that is not the route's success
- * contract, is a result, never a throw). Pure over already-fetched bytes —
+ * shapes `src/net` hands back to a tool, or a structured `problem` (a 429,
+ * or anything else that is not the route's success contract, is a result,
+ * never a throw). Pure over already-fetched bytes —
  * no `fetch`, no `node:*`.
  */
 import type { ProblemDetails } from "@forestrie/scrapi-client";
@@ -94,7 +94,7 @@ export function classify(
   view: ClassifyView,
   baseUrl: string,
 ): Classified {
-  // N8: a 429 is always a structured problem, whichever route it came
+  // A 429 is always a structured problem, whichever route it came
   // back on — the package never polls, and never turns quota into a throw.
   if (view.status === 429) {
     return problemResult(view);

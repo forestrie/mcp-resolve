@@ -1,20 +1,15 @@
 /**
  * Decode the chain binding — univocity contract address, chain id, and this
  * package's UUID-formatted forest log id — out of a forest's genesis
- * document (plan-2609-05 N2 amendment A). The address is a property of the
+ * document. The address is a property of the
  * FOREST, bound at genesis, not of the operator: a caller who holds a
  * genesis document already holds it, which is why `fetch_accumulator` and
  * the chain path of `verify_fetched_receipt` never take the address from a
- * fetched-at-check-time source (decisions.md N2 amendment A).
+ * fetched-at-check-time source.
  *
  * Delegates the label table and the byte-level decode to
- * `@forestrie/receipt-verify`'s own `decodeChainBindingFromGenesis`
- * (plan-2609-06 F7): its labels and its validation order are byte-identical
- * to the local table this module used to define — verified against lane
- * A's genesis document (2026-09-13) before this, and mirrored deliberately
- * in receipt-verify 1.1.0's own docstrings ("so that consumer can delete
- * its own copy") — so only what this module's own callers depend on is
- * still kept local: a `GenesisBindingError` with `.code`/`.reason`
+ * `@forestrie/receipt-verify`'s own `decodeChainBindingFromGenesis`. Only
+ * what this module's own callers depend on is kept local: a `GenesisBindingError` with `.code`/`.reason`
  * (`src/node/tools.ts`'s `guardHandler` matches on it by `instanceof`), and
  * `forestLogId` formatted as a UUID string rather than the raw 32-byte wire
  * value receipt-verify's own `ChainBinding.logId` carries.

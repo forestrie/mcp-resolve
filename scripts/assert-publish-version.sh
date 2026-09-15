@@ -2,7 +2,7 @@
 # assert-publish-version.sh — publish-workflow version guard.
 #
 # Copied from @forestrie/mcp-verify's scripts/assert-publish-version.sh
-# (itself from canopy/scripts/assert-publish-version.sh, FOR-365 C3) and
+# (itself from canopy/scripts/assert-publish-version.sh) and
 # adapted to a ROOT package with bare `v*` tags. Every error message is kept
 # verbatim: they were clearly written after something went wrong, and each
 # one is load-bearing — the E404 check, the foreign-tag arm, and the
@@ -37,8 +37,8 @@
 #   2. A GITHUB_REF-consistency check ported from forestrie-cli's
 #      scripts/assert-tag-version.ts, which the canopy script lacks: when the
 #      caller names an expected tag, it must be the ref actually being built.
-#      That script is Bun, and D1 removes Bun; the check is worth keeping, so
-#      it moves here.
+#      That script is Bun, and this repo has no Bun; the check is worth
+#      keeping, so it moves here.
 #
 # Usage: assert-publish-version.sh [package-dir] [expected-tag]
 #   e.g. assert-publish-version.sh
@@ -49,9 +49,8 @@
 #
 # Requires node (to read package.json) and npm (registry lookup) on PATH.
 #
-# publish.yml itself is phase 3 (plan-2609-05); this script and its CI
-# self-tests are bootstrapped now so the guard is proven before it is wired
-# into a real publish workflow.
+# publish.yml runs this before publishing, and ci.yml self-tests its pass and
+# fail paths on every PR.
 
 set -euo pipefail
 

@@ -1,8 +1,8 @@
 /**
- * Pure URL construction: the four SCRAPI HTTP routes plan-2609-05 N2's table
- * names (`fetch_scitt_configuration`, `query_registration`, `fetch_receipt`,
- * `fetch_genesis`), and the calldata for the on-chain `logState` read (N4
- * amendment B). No `fetch`, no `node:*` — `src/net` (phase 2) is the only
+ * Pure URL construction: the four SCRAPI HTTP routes the fetch tools use
+ * (`fetch_scitt_configuration`, `query_registration`, `fetch_receipt`,
+ * `fetch_genesis`), and the calldata for the on-chain `logState` read. No
+ * `fetch`, no `node:*` — `src/net` is the only
  * place any of these URLs is dereferenced; this module only builds strings.
  */
 
@@ -83,7 +83,7 @@ export function genesisUrl(baseUrl: string, logId: string): string {
   ]);
 }
 
-/* ---- Chain: the `logState(bytes32)` selector and calldata (N4 amendment B) ---- */
+/* ---- Chain: the `logState(bytes32)` selector and calldata ---- */
 
 /** `logState(bytes32)` — `forestrie fetch-accumulator`'s selector. */
 export const LOG_STATE_SELECTOR = "0xeecac1b7";

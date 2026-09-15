@@ -1,8 +1,8 @@
 /**
  * Pure ABI decoding of the `logState(bytes32)` return, and the
  * `known-accumulator` snapshot builder that byte-matches
- * `@forestrie/receipt-verify`'s `encodeKnownAccumulator` (plan-2609-05 N4
- * amendment B). No `fetch`, no `node:*` — `src/net` (phase 2) makes the
+ * `@forestrie/receipt-verify`'s `encodeKnownAccumulator`. No `fetch`, no
+ * `node:*` — `src/net` makes the
  * `eth_call` itself and hands this module the returned hex; this module
  * only decodes and re-encodes bytes.
  */
@@ -85,9 +85,8 @@ export function readWord(bytes: Uint8Array, byteOffset: number): bigint {
 
 /**
  * Decode the `eth_call` return for `logState(bytes32)`: the dynamic tuple
- * `(bytes32[] accumulator, uint64 size)` (plan-2609-05 N4 amendment B,
- * byte-compatible with `forestrie fetch-accumulator`'s
- * `decodeLogStateResult`).
+ * `(bytes32[] accumulator, uint64 size)` (byte-compatible with
+ * `forestrie fetch-accumulator`'s `decodeLogStateResult`).
  *
  * Layout: word 0 is the byte offset to the tuple; at the tuple base, the
  * first word is the byte offset (relative to the tuple base) to the

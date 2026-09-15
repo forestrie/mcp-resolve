@@ -1,6 +1,6 @@
 /**
- * The SYNTHESISED buried-peak fixture (`test/fixtures/synthetic/history/`,
- * plan-2609-06 step 1.2/1.3): its committed generator must be deterministic
+ * The SYNTHESISED buried-peak fixture (`test/fixtures/synthetic/history/`):
+ * its committed generator must be deterministic
  * (re-running it into a fresh directory reproduces the committed bytes
  * exactly — drift is red), and the fabricated `CheckpointPublished` event
  * and `logState` it writes must decode the way the real ones do.

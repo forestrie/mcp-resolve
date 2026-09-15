@@ -1,5 +1,5 @@
 # mcp-resolve: node + pnpm. No Bun anywhere — the package must run under
-# plain `npx` (plan-2609-05 N7, inherited from plan-2609-02 D1/D6).
+# plain `npx`, like the verifier.
 #
 # node/pnpm match the estate's CI pins so `mise install` locally and
 # jdx/mise-action in .github/workflows/ci.yml agree by construction.

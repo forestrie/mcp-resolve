@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * The registry-listing version guard (plan-2609-05 N6 gate 5, copied from
- * @forestrie/mcp-verify's scripts/assert-server-json.mjs).
+ * The registry-listing version guard, copied from @forestrie/mcp-verify's
+ * scripts/assert-server-json.mjs.
  *
  * server.json's `version` (and `packages[0].version`) cannot be read from
  * package.json at build time — it is a static file the MCP registry fetches
@@ -26,8 +26,7 @@
  * the registry then rejected at publish time — a 422, after `npm publish`
  * had already run. Validating the full vendored schema here, the same
  * $schema server.json names, fetched once and committed so the check stays
- * hermetic, closes that gap instead of merely narrowing it
- * (plan-2609-06 decision F6).
+ * hermetic, closes that gap instead of merely narrowing it.
  *
  * Wired into `pnpm test` (ci.yml), exactly like
  * scripts/check-encoding-single-copy.mjs.
@@ -40,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
-// F6: the registry schema server.json's `$schema` names, fetched once in CI
+// The registry schema server.json's `$schema` names, fetched once in CI
 // and vendored here so this check is hermetic. Re-vendor under a new dated
 // file and update this constant if server.json's `$schema` date segment
 // ever changes.
@@ -109,7 +108,7 @@ export function checkServerJson(pkg, server, schema) {
     );
   }
 
-  // F6: server.json must name the exact schema we vendored and validate
+  // server.json must name the exact schema we vendored and validate
   // against below. An unvendored $schema means everything past this point
   // would be validating against the wrong version of the registry's rules.
   if (server["$schema"] !== schema["$id"]) {
@@ -118,7 +117,7 @@ export function checkServerJson(pkg, server, schema) {
         String(server["$schema"] ?? ""),
       )?.[1] ?? "<date>";
     failures.push(
-      `server.json#$schema is "${server["$schema"]}" but the vendored schema's $id is "${schema["$id"]}"; vendor the new schema at tools/registry-schema/${dateSegment}.json and update SCHEMA_PATH in scripts/assert-server-json.mjs (F6)`,
+      `server.json#$schema is "${server["$schema"]}" but the vendored schema's $id is "${schema["$id"]}"; vendor the new schema at tools/registry-schema/${dateSegment}.json and update SCHEMA_PATH in scripts/assert-server-json.mjs`,
     );
   }
 

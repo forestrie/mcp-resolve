@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * The one thing InMemoryTransport cannot catch: a stray write to stdout
- * corrupting the JSON-RPC framing of a REAL process. (plan-2609-05 N6
- * gate 4, copied from @forestrie/mcp-verify's scripts/check-stdio-clean.mjs.)
+ * corrupting the JSON-RPC framing of a REAL process. (Copied from
+ * @forestrie/mcp-verify's scripts/check-stdio-clean.mjs.)
  *
  * Spawns the bin with no arguments (stdio mode), writes a single
  * newline-delimited `initialize` request, and asserts that stdout carries

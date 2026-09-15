@@ -4,10 +4,3 @@ dist/
 .DS_Store
 # packed tarballs from `pnpm pack` / publish:dry-run
 forestrie-mcp-resolve-*.tgz
-# differential-test binary cache (kept for parity with the verifier's layout,
-# unused until this package grows its own differential harness)
-node_modules/.cache/
-# Release-time self bundle (phase 3): nothing generates this yet, but the
-# path is reserved so a later release step can drop files here without a
-# `files` entry going stale.
-/fixtures/self/

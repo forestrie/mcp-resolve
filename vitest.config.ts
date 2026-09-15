@@ -17,7 +17,7 @@ export default defineConfig({
             "test/node/**/*.test.ts",
             "test/scripts/**/*.test.ts",
           ],
-          // N6 gate 2: every test in this project runs with a fetch that
+          // Every test in this project runs with a fetch that
           // throws. src/core never fetches and src/net is tested only
           // through injected fakes.
           setupFiles: ["./test/setup/forbid-fetch.ts"],
@@ -29,10 +29,9 @@ export default defineConfig({
           environment: "node",
           include: ["test/live/**/*.test.ts"],
           // No setup file: this project deliberately makes real requests.
-          // Opt-in by FORESTRIE_LIVE=1 (plan-2609-05 N6 gate 6, N8) — never
-          // a required check, and never run by a worker; the orchestrator
-          // runs it personally against a captured lane and the caller's own
-          // RPC URL.
+          // Opt-in by FORESTRIE_LIVE=1 and never a required check: it runs
+          // against a real lane and the caller's own RPC URL, and the public
+          // lanes share a request quota.
           testTimeout: 60_000,
         },
       },

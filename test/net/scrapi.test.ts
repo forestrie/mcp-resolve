@@ -278,7 +278,7 @@ describe("fetchGenesis", () => {
 });
 
 /**
- * `statement.cose` and `log-key.xy.b64` (plan-2609-06 F7 rework) are
+ * `statement.cose` and `log-key.xy.b64` are
  * vendored byte-for-byte from the published `@forestrie/mcp-verify` 0.4.0
  * tarball's `fixtures/self/` — never read from the installed mcp-verify,
  * whose `fixtures/self/` is regenerated at every release
@@ -290,7 +290,7 @@ describe("fetchGenesis", () => {
  * to `SELF_CONTENT_HASH` (the leaf `receipt-self.cbor` was actually
  * registered against, per the lane-A capture).
  */
-describe("vendored self-registration fixtures (plan-2609-06 F7)", () => {
+describe("vendored self-registration fixtures", () => {
   it("statement.cose and log-key.xy.b64 match manifest.json's recorded sha256", async () => {
     const files = await manifest();
     const statementBytes = await readFile(

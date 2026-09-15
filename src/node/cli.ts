@@ -2,7 +2,7 @@
  * The bin entry, reached via `bin/mcp-resolve.mjs`.
  *
  *   <no args>          → StdioServerTransport; this is what
- *                        `npx -y @forestrie/mcp-resolve` does (N7).
+ *                        `npx -y @forestrie/mcp-resolve` does.
  *   --help | --version → text on stdout, exit 0.
  *
  * TWO RULES, both silent-corruption bugs if broken:
@@ -17,11 +17,9 @@
  *    the process mid-write truncates whatever the stdio transport had
  *    buffered. The wrapper sets `process.exitCode` and lets node drain.
  *
- * Registers the six N2 tools (plan-2609-05 phase 2): `fetch_scitt_configuration`,
- * `query_registration`, `fetch_receipt`, `fetch_genesis`, `fetch_accumulator`
- * and the composed `verify_fetched_receipt`. `createServer()` is called with
- * no `deps`, so it reads `process.env` and calls the real `globalThis.fetch` —
- * exactly what `npx -y @forestrie/mcp-resolve` should do.
+ * Serves the seven tools `createServer()` (`server.ts`) registers. It is
+ * called with no `deps`, so it reads `process.env` and calls the real
+ * `globalThis.fetch` — exactly what `npx -y @forestrie/mcp-resolve` should do.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { PACKAGE_VERSION, VERIFIER_VERSION } from "../core/index.js";

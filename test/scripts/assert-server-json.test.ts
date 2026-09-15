@@ -1,5 +1,5 @@
 /**
- * scripts/assert-server-json.mjs's pure `checkServerJson` check (F6):
+ * scripts/assert-server-json.mjs's pure `checkServerJson` check:
  * server.json must agree with package.json AND validate against the
  * vendored registry schema, not just the two hand-picked caps. No network
  * — the schema is read from the committed vendor file, exactly as the CLI

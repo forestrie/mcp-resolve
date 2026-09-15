@@ -5,23 +5,20 @@ name: Publish
 # Provenance is attested automatically. The FIRST publish of the package must
 # be manual; this workflow handles every subsequent release.
 #
-# Copied from forestrie/mcp-verify's .github/workflows/publish.yml @ 8358159
-# (plan-2609-05 N1, N7), which itself descends from forestrie/mandate
+# Copied from forestrie/mcp-verify's .github/workflows/publish.yml @ 8358159,
+# which itself descends from forestrie/mandate
 # .github/workflows/publish-mandate-register.yml, the estate's clearest
 # statement of the ref-laundering rationale. Changes from the verifier's copy:
 # package name and tarball glob (@forestrie/mcp-resolve,
 # forestrie-mcp-resolve-*.tgz), `dev.forestrie/verify` -> `dev.forestrie/resolve`
 # everywhere, and NO self-registration step — see the comment in its place
-# below (plan-2609-05 N2: this package has no write tools, no grants, no keys,
-# so it has nothing of its own to register).
+# below (this package has no write tools, no grants and no keys, so it has
+# nothing of its own to register).
 #
-# First publish, by hand: `@forestrie/mcp-resolve@0.1.0` was published
-# unattested by the owner on 2026-09-13 (`npm publish --provenance=false`),
-# because npm can only register a trusted publisher for a package that
-# already exists (handoff.md). The trusted publisher was registered
-# immediately after, against this workflow and the `npm-publish` environment.
-# Consequence: this workflow's first attested release is `0.1.1`, not `0.1.0`
-# — phase 3 step 3.4 bumps to 0.1.1 rather than re-publishing 0.1.0.
+# The first publish, 0.1.0, was by hand and unattested, because npm can only
+# register a trusted publisher for a package that already exists. The trusted
+# publisher was registered immediately after, against this workflow and the
+# `npm-publish` environment, so every release from 0.1.1 on is attested.
 #
 # Release discipline:
 # - Tags (`v<version>`) are the normal release trigger; workflow_dispatch is
@@ -53,7 +50,7 @@ name: Publish
 #   and the registry listing, never a network write of its own material.
 #
 # No self-registration step: @forestrie/mcp-resolve registers nothing
-# (plan-2609-05 N2: no write tools, no grants, no keys); the verifier's
+# (no write tools, no grants, no keys); the verifier's
 # release registers its own provenance in the Forestrie log
 # (scripts/self-register.mjs, between Build and Pack in its publish.yml) —
 # this package's release does not, because it has no provenance document of
@@ -77,8 +74,8 @@ name: Publish
 #   record on forestrie.dev to already exist and the
 #   MCP_PUBLISHER_DNS_PRIVATE_KEY secret to be set in the npm-publish
 #   environment — the same DNS identity the verifier's listing uses, since
-#   the apex TXT record authorises every name under dev.forestrie/* (N7);
-#   no new DNS work for this package. Both are one-time, owner-side setup;
+#   the apex TXT record authorises every name under dev.forestrie/*. Both
+#   are one-time, owner-side setup;
 #   login fails closed until then.
 # - `mcp-publisher publish` must run strictly after `npm publish`: ownership
 #   verification reads package.json#mcpName from the tarball npm publish
@@ -181,7 +178,7 @@ jobs:
         # Runs here, before `npm publish`, so the "mcp-publisher validate"
         # step below can gate the release: v0.1.1 shipped to npm with a
         # server.json the registry only rejected afterwards, at publish
-        # time (plan-2609-06 F6). No `if:` on this step (or Verify, Extract,
+        # time. No `if:` on this step (or Verify, Extract,
         # validate) — they run in rehearsals too, so a rehearsal still
         # proves server.json passes registry validation.
         run: |
@@ -203,7 +200,7 @@ jobs:
       - name: mcp-publisher validate
         # Validates server.json before `npm publish` runs below, so a
         # rejection here stops the release instead of following it — the
-        # v0.1.1 failure mode (plan-2609-06 F6). It sends server.json to
+        # v0.1.1 failure mode. It sends server.json to
         # registry.modelcontextprotocol.io for validation: no login, but it
         # needs network. The hermetic check is `check:server-json` in
         # `pnpm test`. No `if:` — runs in rehearsals too.
@@ -227,9 +224,8 @@ jobs:
       # the npm Publish step above: a rehearsal never lists anything, npm or
       # the MCP registry alike.
       - name: mcp-publisher login (DNS)
-        # Requires the apex TXT record on forestrie.dev (already present for
-        # dev.forestrie/verify and authorising every name under
-        # dev.forestrie/*, N7 — no new DNS work for this package) and the
+        # Requires the apex TXT record on forestrie.dev (it authorises every
+        # name under dev.forestrie/*) and the
         # MCP_PUBLISHER_DNS_PRIVATE_KEY secret in the npm-publish environment.
         # Fails closed until both exist.
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}

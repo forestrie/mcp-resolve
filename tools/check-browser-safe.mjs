@@ -1,8 +1,8 @@
 /**
- * Browser-safety guard (plan-2609-05 N6 gate 1; copied from
- * @forestrie/mcp-verify's tools/check-browser-safe.mjs, itself copied from
+ * Browser-safety guard (copied from @forestrie/mcp-verify's
+ * tools/check-browser-safe.mjs, itself copied from
  * canopy/packages/libs/receipt-verify/tools/check-browser-safe.mjs, written
- * for ADR-0048 / plan-2607-13 W4/C8): bundle the package entry for the
+ * for ADR-0048): bundle the package entry for the
  * browser platform and fail if any node builtin is in the module graph.
  *
  * What this copy proves: not only that `src/core` has no node edge, but that

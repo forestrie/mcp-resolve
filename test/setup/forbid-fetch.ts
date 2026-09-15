@@ -1,7 +1,7 @@
 import { afterAll, beforeAll } from "vitest";
 
 /**
- * N6 gate 2: src/core never fetches and src/net is tested only through
+ * src/core never fetches and src/net is tested only through
  * injected fakes. Any real fetch under any unit test is a bug, not a slow
  * test — so the whole unit project runs with a fetch that throws, rather
  * than a per-call swap.

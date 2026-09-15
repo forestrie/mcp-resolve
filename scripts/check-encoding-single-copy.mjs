@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * N4: exactly one copy each of every @forestrie/* wire package this repo
+ * Exactly one copy each of every @forestrie/* wire package this repo
  * pins — @forestrie/encoding, @forestrie/scrapi-client,
  * @forestrie/receipt-verify, @forestrie/chain-rpc and
  * @forestrie/mcp-verify.
@@ -12,13 +12,9 @@
  * @forestrie/mcp-verify: the receipt-verify core this package composes
  * with) means two disagreeing implementations of the same bytes, and a
  * package that fetches material for a verifier to check cannot afford that
- * ambiguity. This is a release gate, not a lint. Copied from
- * @forestrie/mcp-verify's scripts/check-encoding-single-copy.mjs, extended
- * (plan-2609-05 N4 amendment A, 2026-09-13) to loop over @forestrie/encoding
- * and @forestrie/receipt-verify with the same mechanism, and extended again
- * (plan-2609-06 F7, 2026-09-14) to cover @forestrie/scrapi-client,
- * @forestrie/chain-rpc and @forestrie/mcp-verify — every @forestrie/* wire
- * package this repo pins, gated the same way for the same reason.
+ * ambiguity. This is a release gate, not a lint. Adapted from
+ * @forestrie/mcp-verify's scripts/check-encoding-single-copy.mjs to loop over
+ * every @forestrie/* wire package this repo pins.
  *
  * Works on both layouts:
  *   pnpm  — node_modules/.pnpm/@forestrie+<name>@<v>/node_modules/@forestrie/<name>
@@ -31,16 +27,8 @@
  * DO NOT "fix" a red run here with a pnpm `overrides` entry for any of
  * these packages. An override SILENCES the exact skew this gate exists to
  * detect, by rewriting a transitive dep to a version its parent was never
- * tested against. Today every pin is naturally satisfiable — mcp-verify
- * 0.4.1 depends on receipt-verify 1.1.0 exactly, matching this package's
- * own direct pin, and receipt-verify 1.1.0 in turn depends on chain-rpc
- * 0.3.0 and encoding 0.7.0 exactly, also matching this package's own pins;
- * scrapi-client 0.2.2 depends on encoding 0.7.0 exactly too — so there is
- * exactly one copy of each without any coercion (this was not always true:
- * mcp-verify 0.4.0 pinned receipt-verify 1.0.0, which pinned chain-rpc
- * 0.2.0, until mcp-verify 0.4.1 re-pinned to receipt-verify 1.1.0,
- * plan-2609-06 F7). If a future dependency drags a second copy in again,
- * fix or drop that dependency (or wait for its bump), never override.
+ * tested against. If a dependency drags in a second copy, fix or drop that
+ * dependency (or wait for its bump), never override.
  *
  * Usage: node scripts/check-encoding-single-copy.mjs [rootDir]
  */
@@ -50,7 +38,7 @@ import { join } from "node:path";
 const root = process.argv[2] ?? process.cwd();
 const MAX_DEPTH = 12;
 
-// name -> expected exact pin (N4, extended by F7)
+// name -> expected exact pin
 const EXPECTED = {
   "@forestrie/encoding": "0.7.0",
   "@forestrie/scrapi-client": "0.2.2",

@@ -47,7 +47,7 @@ function buildGenesis(fields: {
 /** 32-byte wire log id: 16 zero bytes then a 16-byte UUID's bytes — here,
  *  deliberately the address's own first 16 bytes, matching the CLI's
  *  `onboard-genesis` / `genesisLogIdFromImutableAddress` relationship
- *  (decisions.md N2 amendment A) for a well-formed genesis document. */
+ *  for a well-formed genesis document. */
 function logIdWireFromAddress(address: Uint8Array): Uint8Array {
   const wire = new Uint8Array(32);
   wire.set(address.slice(0, 16), 16);

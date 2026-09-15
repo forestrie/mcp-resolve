@@ -1,20 +1,17 @@
 /**
- * The three-call JSON-RPC `logState` read (plan-2609-05 N4 amendment B):
+ * The three-call JSON-RPC `logState` read:
  * `eth_chainId`, `eth_getBlockByNumber("latest", false)`, then `eth_call {
  * to: univocity, data: logStateCalldata(logId) }` at that block's number.
  * The POSTs themselves go through `@forestrie/chain-rpc`'s `ethRpc`
- * (plan-2609-06 F7 — its 0.3.0 `EthRpcOptions` gained the `fetchImpl`
- * injection point AGENTS.md's N4 amendment B noted was missing); this
- * module keeps the three-call sequencing, the `rpc_chain_id_mismatch`
- * short-circuit, and the `never throw for a response actually obtained`
- * interpretation exactly as before — only the transport underneath
- * `callJsonRpc` changed. Also here: `readChainHead` (plan-2609-06 F4), the
+ * with an injected `fetchImpl`; this module owns the three-call sequencing,
+ * the `rpc_chain_id_mismatch` short-circuit, and the `never throw for a
+ * response actually obtained` interpretation. Also here: `readChainHead`, the
  * same first two calls without the `eth_call`, for
  * `fetch_checkpoint_history`, which has no use for `logState`.
  *
  * A JSON-RPC-level `error` member, a non-2xx status, or an unusable result
  * shape is returned as a structured `{ kind: "problem", problem }` — never
- * thrown, per N8 and this step's spec. `NetError` is thrown only when no
+ * thrown. `NetError` is thrown only when no
  * response was obtained at all for one of the calls.
  */
 import { ethRpc } from "@forestrie/chain-rpc";
@@ -78,7 +75,7 @@ export type JsonRpcOutcome =
  *
  * `id` is accepted for call-site compatibility (`history.ts` passes an
  * incrementing request counter) but unused: `@forestrie/chain-rpc`'s
- * `ethRpc` (F7) builds its own JSON-RPC envelope, always with `id: 1` —
+ * `ethRpc` builds its own JSON-RPC envelope, always with `id: 1` —
  * nothing here reads the outgoing `id` back off a response, so this is a
  * cosmetic difference only.
  *
@@ -94,8 +91,7 @@ export type JsonRpcOutcome =
  * record the real `Response.status` of the one request this makes, in
  * `lastStatus`, before `ethRpc` parses the body — so every `rpc_error`
  * problem below carries the actual HTTP status regardless of which of
- * ethRpc's two failure shapes it hit, exactly as this package's own
- * pre-F7 JSON-RPC POST always did.
+ * ethRpc's two failure shapes it hit.
  *
  * A genuine transport failure or timeout still surfaces as `NetError`:
  * `ethRpc`'s own `catch` only special-cases `AbortError`, so a `NetError`
@@ -157,10 +153,10 @@ type ChainHeadOutcome =
 
 /**
  * `eth_chainId` -> (if `expectedChainId` given and it differs, RETURN a
- * `rpc_chain_id_mismatch` problem before any further call, N2 amendment A)
+ * `rpc_chain_id_mismatch` problem before any further call)
  * -> `eth_getBlockByNumber("latest", false)`. Ids 1, 2 — shared by
  * `readLogState` below (which continues with `eth_call` at id 3) and
- * `readChainHead` (plan-2609-06 F4), which stops here:
+ * `readChainHead`, which stops here:
  * `fetch_checkpoint_history` needs only the latest block, never `logState`.
  */
 async function readChainIdAndLatestBlock(
@@ -215,7 +211,7 @@ async function readChainIdAndLatestBlock(
 
 /**
  * `eth_chainId` -> (if `expectedChainId` given and it differs, RETURN a
- * `rpc_chain_id_mismatch` problem before any further call, N2 amendment A)
+ * `rpc_chain_id_mismatch` problem before any further call)
  * -> `eth_getBlockByNumber("latest", false)` -> `eth_call` for `logState`
  * at that block. Ids 1, 2, 3.
  */
@@ -276,13 +272,10 @@ export type ReadChainHeadResult =
 
 /**
  * `eth_chainId` -> `eth_getBlockByNumber("latest", false)`, and nothing
- * else — no `eth_call` (plan-2609-06 F4). `fetch_checkpoint_history` scans
+ * else — no `eth_call`. `fetch_checkpoint_history` scans
  * `CheckpointPublished` history from the latest block; it never reads
- * `logState` itself. `@forestrie/chain-rpc` has no `fetchImpl` injection
- * point (AGENTS.md, N4 amendment B), so — as with the rest of this module —
- * this is a small function making only the two calls this tool needs
- * through the injected `fetchImpl`, rather than a call to `readLogState`
- * that would always make the third, unneeded, `eth_call`.
+ * `logState` itself, so this makes only the two calls that tool needs,
+ * rather than calling `readLogState`, which always makes the third.
  */
 export async function readChainHead(
   input: ReadChainHeadInput,

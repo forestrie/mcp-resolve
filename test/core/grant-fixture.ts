@@ -1,5 +1,5 @@
 /**
- * Shared helpers for the verifier's frozen FOR-289 conformance grant
+ * Shared helpers for the verifier's frozen conformance grant
  * fixture (`@forestrie/mcp-verify`'s `fixtures/golden/`), used by both
  * `test/core/grant-leaf.test.ts` (the raw-grant branch and the cross-check
  * against `verifyGrantReceipt`) and its COSE-branch companion describe

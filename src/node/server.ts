@@ -4,17 +4,9 @@
  * is also what lets an embedder mount tools on their own transport without
  * the CLI.
  *
- * Phase 2 (plan-2609-05 step 2.4) registers the six N2 tools —
- * `fetch_scitt_configuration`, `query_registration`, `fetch_receipt`,
- * `fetch_genesis`, `fetch_accumulator` and the composed
- * `verify_fetched_receipt` — each annotated `{ readOnlyHint: true,
- * destructiveHint: false, idempotentHint: true, openWorldHint: true }` per
- * N5: every one of them fetches, unlike the verifier's own tools. Calling
- * `registerTool` at all turns the `tools` capability on and wires
- * `tools/list`, so the phase 1 empty-tools escape hatch
- * (`registerCapabilities` + a hand-set `ListToolsRequestSchema` handler) is
- * gone. plan-2609-06 F4 adds a seventh, `fetch_checkpoint_history`, right
- * after `fetch_accumulator`, with the same N5 annotations.
+ * Registers the seven tools, each annotated `{ readOnlyHint: true,
+ * destructiveHint: false, idempotentHint: true, openWorldHint: true }`:
+ * every one of them fetches, unlike the verifier's own tools.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PACKAGE_VERSION } from "../core/index.js";
@@ -48,7 +40,7 @@ const SERVER_NAME = "forestrie-mcp-resolve";
 
 /** Every field optional; defaults to `process.env` / `globalThis.fetch` /
  *  `() => new Date()` so tests can inject a fake `fetch` and a fake `env`
- *  (N8: `FORESTRIE_BASE_URL` / `FORESTRIE_RPC_URL` are the caller's own
+ *  (`FORESTRIE_BASE_URL` / `FORESTRIE_RPC_URL` are the caller's own
  *  supply, never a package default) without touching the real network or
  *  the real environment. */
 export type Deps = {
@@ -65,7 +57,7 @@ function resolveDeps(deps: Deps | undefined): ResolvedDeps {
   };
 }
 
-/** Every networked tool carries the same annotations (N5): read-only,
+/** Every networked tool carries the same annotations: read-only,
  *  non-destructive, idempotent (a repeated GET/eth_call returns the same
  *  or a newer state, never a side effect), and open-world — unlike the
  *  verifier's own tools, every one of these fetches. */

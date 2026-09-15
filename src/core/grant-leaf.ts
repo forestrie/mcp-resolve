@@ -1,5 +1,5 @@
 /**
- * Grant-receipt leaf inputs (plan-2609-06 phase 1 amendment, 2026-09-14):
+ * Grant-receipt leaf inputs:
  * the `idtimestampBe8` / `inner` pair `recomputeReceiptPeak` needs for a
  * grant receipt, derived without any verification arithmetic of this
  * package's own — only the COSE-vs-raw-grant decode dispatch, mirrored

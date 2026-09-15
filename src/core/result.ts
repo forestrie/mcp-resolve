@@ -1,8 +1,8 @@
 /**
  * `FetchedVerifyResult`: the verifier's own `VerifyResult`, with `courier`
- * identity attached and `diagnostics` widened to admit the two courier
- * codes `compose.ts` appends. Every other field is the verifier's,
- * untouched (plan-2609-05 N3).
+ * identity attached and `diagnostics` widened to admit the courier codes in
+ * `COURIER_DIAGNOSTIC_CODES` (`provenance.ts`). Every other field is the verifier's,
+ * untouched.
  */
 import type {
   AnchorReport,

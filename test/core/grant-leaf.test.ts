@@ -1,6 +1,5 @@
 /**
- * `grantLeafInputs` (plan-2609-06 phase 1 amendment, 2026-09-14), cross-
- * checked against the verifier's own `verifyGrantReceipt` over the SAME
+ * `grantLeafInputs`, cross-checked against the verifier's own `verifyGrantReceipt` over the SAME
  * bundled golden fixtures `test/core/compose.test.ts` and
  * `@forestrie/mcp-verify`'s `src/node/demo.ts` use. `src/node/fixtures.ts`
  * is not part of the verifier's published exports (only `"."` and
@@ -11,7 +10,7 @@
  *
  * The COSE-branch describe blocks below read
  * `test/fixtures/synthetic/grant-cose/grant.cose` — the verifier's frozen
- * FOR-289 conformance grant (same grant `grant-fixture.ts` rebuilds),
+ * conformance grant (same grant `grant-fixture.ts` rebuilds),
  * wrapped as a Forestrie-Grant COSE Sign1 and signed with a PUBLISHED
  * TEST-ONLY key. See that directory's PROVENANCE.md for why it exists and
  * what is fabricated.

@@ -1,4 +1,4 @@
-# SYNTHESISED — plan-2609-06 grant-leaf COSE branch fixture
+# SYNTHESISED — grant-leaf COSE branch fixture
 
 These bytes are FABRICATED, not a real Custodian-issued grant. Generated
 by `generate.mjs` (deterministic except for the ECDSA signature — see
@@ -8,7 +8,7 @@ below).
 
 `grantLeafInputs` (`src/core/grant-leaf.ts`) mirrors the verifier's
 private grant decoder: try a Forestrie-Grant COSE Sign1 first, fall back
-to a raw grant payload. The verifier's own frozen FOR-289 conformance
+to a raw grant payload. The verifier's own frozen conformance
 grant fixture is a raw grant payload, so `test/core/grant-leaf.test.ts`
 had no fixture to exercise the COSE branch against. This directory
 supplies one.
@@ -16,7 +16,7 @@ supplies one.
 ## What is real
 
 The grant inside `grant.cose` is byte-identical to the verifier's frozen
-FOR-289 conformance grant (`@forestrie/mcp-verify`'s
+conformance grant (`@forestrie/mcp-verify`'s
 `fixtures/golden/manifest.json`, re-encoded here with
 `encodeGrantPayloadV0Canonical` exactly as
 `test/core/grant-leaf.test.ts`'s `goldenCommittedGrant()` does): same

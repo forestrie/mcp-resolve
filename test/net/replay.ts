@@ -2,8 +2,8 @@
  * Fake `fetch` functions built from the frozen recorded-exchange fixtures
  * (`test/fixtures/lane-a/`, `test/fixtures/chain/`), for `test/net/**` to
  * inject through `fetchImpl` — never `globalThis.fetch`, which the unit
- * project's `test/setup/forbid-fetch.ts` already replaces with a thrower
- * (N6 gate 2). This module never touches `globalThis.fetch` itself.
+ * project's `test/setup/forbid-fetch.ts` already replaces with a thrower.
+ * This module never touches `globalThis.fetch` itself.
  *
  * Lane A: keyed by the exact URL each `*.meta.json` recorded, so a test
  * never hand-types a URL that could drift from the fixture. Any URL not in
@@ -155,7 +155,7 @@ export type ChainReplayOverride = { status: number; response: unknown };
  *   JSON-RPC error body for `eth_chainId`) — the fixture's recorded
  *   request/params are still the ones checked against the incoming call.
  * @param fixturePath Absolute path to a `logState.<block>.json`-shaped
- *   fixture; defaults to the plan-2609-05 capture (block 46770471). The
+ *   fixture; defaults to the `logState` capture at block 46770471. The
  *   synthetic buried-peak fixture's `logState.46795144.json` is the same
  *   shape (`ChainFixtureFile`), so a history test can point here too.
  */

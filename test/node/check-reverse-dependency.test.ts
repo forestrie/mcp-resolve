@@ -1,5 +1,5 @@
 /**
- * F5 (plan-2609-06 3.1, FOR-559) negative test: `findMcpResolveCopies`
+ * Negative test: `findMcpResolveCopies`
  * (scripts/check-reverse-dependency.mjs) must find a nested
  * @forestrie/mcp-resolve wherever it is planted — plain nested
  * node_modules, and pnpm's `.pnpm/<key>/node_modules/<scope>/<name>` store

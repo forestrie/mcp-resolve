@@ -15,7 +15,7 @@ const LANE_A_RECEIPT_PATH = path.join(
 );
 
 /** e8345800-a747-4e62-9409-61622b836f1f — the UUID form of claim `1` in
- *  lane-A's frozen receipt's delegation certificate (runner 2.1 facts). */
+ *  lane-A's frozen receipt's delegation certificate. */
 const EXPECTED_UUID = "e8345800-a747-4e62-9409-61622b836f1f";
 
 /** A minimal 4-element COSE_Sign1-shaped array, no unprotected label 1000

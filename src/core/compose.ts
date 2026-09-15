@@ -1,7 +1,7 @@
 /**
  * Compose logic over already-fetched bytes: run the verifier's own core
- * (`verifyReceipt` / `verifyGrantReceipt`) and append exactly the honesty
- * rule's two diagnostics (plan-2609-05 N3). This package has NO
+ * (`verifyReceipt` / `verifyGrantReceipt`) and append the honesty rule's
+ * courier diagnostics. This package has NO
  * verification arithmetic of its own — every field but `diagnostics` and
  * `courier` is the verifier's object, untouched.
  */
@@ -20,10 +20,10 @@ import type { CourierDiagnostic, FetchedVerifyResult } from "./result.js";
 export type VerifyFetchedInput = {
   receipt: Uint8Array;
   /** Where the root came from: bytes the caller supplied, an accumulator
-   *  this call read from the chain's latest `logState` (N2 amendment A),
+   *  this call read from the chain's latest `logState`,
    *  or a checkpoint this call selected from published
    *  `CheckpointPublished` history because the latest state no longer
-   *  held the receipt's peak (plan-2609-06 F1). */
+   *  held the receipt's peak. */
   rootProvenance: "supplied" | "chain-read" | "chain-read-history";
 } & (
   | {
@@ -55,7 +55,7 @@ const ROOT_READ_FROM_CHAIN: CourierDiagnostic = {
     "the accumulator was read from the chain in this call, at the caller's RPC URL",
 };
 
-/** F1, verbatim (plan-2609-06 01-phase-1-history.md 1.5.2). Appended
+/** Fixed wording, quoted in docs/what-fetching-proves.md. Appended
  *  alongside `root_read_from_chain` — never instead of it — when the root
  *  came from a checkpoint selected out of published history rather than
  *  the latest `logState`. */
@@ -71,7 +71,7 @@ const ROOT_READ_FROM_CHAIN_HISTORY: CourierDiagnostic = {
  * `receipt_fetched_from_operator` always, `root_read_from_chain` for
  * either chain-read root, and `root_read_from_chain_history` additionally
  * when the root was selected from history) and `courier` (this package's
- * identity, alongside the verifier's — N1).
+ * identity, alongside the verifier's).
  */
 export async function verifyFetched(
   input: VerifyFetchedInput,
@@ -112,9 +112,9 @@ export async function verifyFetched(
  * `@forestrie/receipt-verify`'s `known-accumulator.js` `stage: "signature",
  * reason: "peak_not_in_known_accumulator"` (surfaced unaltered through
  * `@forestrie/mcp-verify`'s `VerifyResult.reason`) — as opposed to any
- * other failure. This is the one case F1's fallback applies to; every
+ * other failure. This is the one case the history fallback applies to; every
  * other failure (a bad signature, a stale snapshot, a malformed receipt)
- * is answered as today, with no history scan.
+ * is returned as is, with no history scan.
  */
 export function isPeakNotInKnownAccumulator(result: {
   ok: boolean;
@@ -146,8 +146,7 @@ async function payloadInnerHash(payload: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
- * `fetch_accumulator`'s `forReceipt` check (plan-2609-06 F1, amended
- * 2026-09-14): recompute the receipt's MMR peak from its real leaf inputs
+ * `fetch_accumulator`'s `forReceipt` check: recompute the receipt's MMR peak from its real leaf inputs
  * via the verifier's own `recomputeReceiptPeak`. No verification
  * arithmetic of its own: the peak recompute and the leaf-input derivation
  * are both the verifier stack's, never reimplemented here. `kind:
@@ -187,7 +186,7 @@ export async function recomputePeakForReceipt(
   return peak;
 }
 
-/** Is `peak` one of `accumulator`'s peaks? Pure byte comparison — F1's
+/** Is `peak` one of `accumulator`'s peaks? Pure byte comparison —
  *  "compare the recomputed peak to every peak", over a peak recomputed
  *  once by `recomputePeakForReceipt` and compared against as many
  *  candidate accumulators as the history scan needs. */
@@ -200,7 +199,7 @@ export function peakHeldIn(
 
 /**
  * The text summary: the provenance line, then the verifier's own
- * `summarize()` output, unaltered (N3).
+ * `summarize()` output, unaltered.
  */
 export function summarizeFetched(
   verb: string,
