@@ -1,4 +1,4 @@
-# CheckpointPublished history — plan-2609-06 step 1.2
+# CheckpointPublished history — frozen
 
 Captured 2026-09-13 (UTC 2026-09-13T22:29:37.551Z).
 
@@ -34,15 +34,17 @@ Total: 11 JSON-RPC 2.0 calls, each made exactly once.
 
 ## Buried-peak status
 
-**No real buried peak on this log** (orchestrator, 2026-09-13). The latest
+**No real buried peak on this log at capture** (2026-09-13). The latest
 `logState` at block 46785144 decodes as size 11 with 3 peaks and equals the
-newest `CheckpointPublished` (block 46764680, size 11); the log has not grown
-since plan-2609-05's capture at block 46770471. The six checkpoints found are,
+newest `CheckpointPublished` (block 46764680, size 11); the log had not grown
+since the earlier `logState` capture at block 46770471. The six checkpoints found are,
 oldest first (block, size, peaks): 46734813 / 1 / 1; 46734839 / 3 / 1;
 46736245 / 4 / 2; 46764135 / 8 / 2; 46764156 / 10 / 2; 46764680 / 11 / 3.
 The verifier's own receipt (mmr index 8) leads to the peak at mmr index 9,
 present in the size-10 and size-11 checkpoints and in the latest state, so
 against these bytes split-view answers `ok` from the latest state alone.
+The live log grew past a fold on 2026-09-14; these bytes still record the
+state at capture.
 
 The buried-peak test fixture is therefore SYNTHESISED, in
 `test/fixtures/synthetic/history/`, by a committed generator that takes these
@@ -55,4 +57,4 @@ size-11 checkpoint, and the live gate runs against the real chain.
 
 ## RPC URL
 
-The RPC URL is the owner-supplied one for the task (Doppler `cicd-forestrie-log/dev` `RPC_URL`); never recorded here, never in the package. These bytes are FROZEN (execution-model item 10).
+The RPC URL was supplied by the maintainer; it is never recorded here or in the package. These bytes are FROZEN.

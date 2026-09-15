@@ -48,18 +48,20 @@ Requires Node 20.11 or later.
 
 ## The seven tools
 
-| Tool                        | What it does                                                                                                                                                                                                                                                                                                | Provenance                       | Supports                                                                                                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `fetch_scitt_configuration` | `GET {baseUrl}/.well-known/scitt-configuration`                                                                                                                                                                                                                                                             | fetched                          | none: operator self-description                                                                                                          |
-| `query_registration`        | one `GET` of the registration-status URL for a statement's content hash; returns pending or the receipt location, never polls                                                                                                                                                                               | fetched                          | none: registration status                                                                                                                |
-| `fetch_receipt`             | `GET` a receipt by URL or by log coordinates; returns the bytes, the verifier's decoding of them, and the log id its delegation certificate names                                                                                                                                                           | fetched                          | none on its own: a receipt is the operator's claim                                                                                       |
-| `fetch_genesis`             | `GET` the forest's genesis document; returns the bytes, the chain binding they carry and, for an ES256 forest, the bootstrap public key decoded from them                                                                                                                                                   | fetched                          | `sealing`, as `known-log-key` with the key this copy carries, and only if you keep the copy                                              |
-| `fetch_accumulator`         | reads the log's published accumulator from the univocity contract at your RPC URL and returns the snapshot the `known-accumulator` root consumes; given a receipt whose peak later growth has buried, looks back through published checkpoint history, within your budget, for the newest one that holds it | chain-read                       | `split-view` against the chain; `sealing` and `append-authority` by inheritance from the contract's publish-time checks                  |
-| `fetch_checkpoint_history`  | reads the log's published checkpoints back from the contract's `CheckpointPublished` events at your RPC URL, newest first, within the block budget you set; returns each as a snapshot you can keep                                                                                                         | chain-read                       | as `fetch_accumulator`; a kept checkpoint answers `split-view` later, without another chain read, for any receipt whose peak it contains |
-| `verify_fetched_receipt`    | fetches a receipt and verifies it with the verifier's core under a root you supply as bytes, or under an accumulator read from the chain in the same call; the log you name always wins over the one the receipt's certificate names                                                                        | fetched + supplied or chain-read | the verifier's own answers, passed through unaltered                                                                                     |
+| Tool                        | Provenance                           | What it does                                                                        | Supports                                    |
+| --------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------- |
+| `fetch_scitt_configuration` | fetched                              | `GET {baseUrl}/.well-known/scitt-configuration`                                     | none                                        |
+| `query_registration`        | fetched                              | one registration-status request for a statement; never polls                        | none                                        |
+| `fetch_receipt`             | fetched                              | fetches a receipt, decodes it, and reports the log its certificate names            | none on its own                             |
+| `fetch_genesis`             | fetched                              | fetches the forest's genesis document, with its chain binding and bootstrap key     | `sealing`, only for a copy you keep         |
+| `fetch_accumulator`         | chain-read                           | reads the log's published accumulator; looks back through history for a buried peak | `split-view`, `sealing`, `append-authority` |
+| `fetch_checkpoint_history`  | chain-read                           | reads published checkpoints back, newest first, within your block budget            | as `fetch_accumulator`                      |
+| `verify_fetched_receipt`    | fetched, plus supplied or chain-read | fetches a receipt and verifies it under a root you supply or read from the chain    | the verifier's own answers, unaltered       |
 
 Every tool is annotated read-only, idempotent and open-world, because every
-one of them talks to something outside your process.
+one of them talks to something outside your process. What each `supports`
+entry means, and why, is in
+[docs/what-fetching-proves.md](docs/what-fetching-proves.md).
 
 ## What a fetched thing proves
 
@@ -79,7 +81,7 @@ which root, with a one-line note). The notes are fixed strings the tests
 assert verbatim; they are listed and explained in
 [docs/what-fetching-proves.md](docs/what-fetching-proves.md).
 
-Two consequences are built into the tool surface rather than left to
+Three consequences are built into the tool surface rather than left to
 documentation:
 
 - **A fetched genesis is never a root.** `verify_fetched_receipt` takes its
@@ -97,12 +99,10 @@ documentation:
   explicitly, never from a default, never from a genesis fetched inside the
   call, and never from an environment variable.
 - **Buried peaks are answered from published history, under the same
-  root.** The contract keeps only the latest state; later growth folds a
-  receipt's peak into a bigger one. The chain path then looks back through
-  `CheckpointPublished` events, one `eth_getLogs` per window within the
-  budget you set, for the newest checkpoint that still holds the peak, and
-  says so (`root_read_from_chain_history`). Running out of range is a
-  structured problem, never an unbounded scan.
+  root.** When later growth has folded a receipt's peak into a bigger one,
+  the chain path looks back through published checkpoints, within the block
+  budget you set, and says so (`root_read_from_chain_history`). It never
+  scans without a bound.
 
 The verifier's own [`TRANSPARENCY.md`](https://github.com/forestrie/mcp-verify/blob/main/TRANSPARENCY.md)
 (shipped in its tarball) explains what a transparency log is and what a
@@ -136,31 +136,25 @@ src/node/   the MCP adapter: SDK, stdio, {path}/base64 inputs, env defaults.
             Exported as "./server".
 ```
 
-CI blocks on: `src/core` bundling for the browser with no Node builtin;
-the unit project running under a `fetch` that throws (the network layer is
-tested only through injected fakes, replaying recorded exchanges frozen
-under `test/fixtures/` with a sha256 manifest and a `PROVENANCE.md`); one
-copy of `@forestrie/encoding` and `@forestrie/receipt-verify` in the repo
-and in a scratch install of the packed tarball; the real bin writing
-nothing to stdout but MCP frames; and `server.json` agreeing with
-`package.json`. A live project against a real lane exists, is opt-in by
-environment variable, and is never a required check.
+CI blocks on the purity and packaging gates described in
+[AGENTS.md](AGENTS.md). Unit tests run under a `fetch` that throws and replay
+exchanges recorded under `test/fixtures/`. A live project against a real lane
+exists, is opt-in, and is never a required check.
 
 ```
 pnpm test        # purity gates + unit tests
 pnpm typecheck
 pnpm build
-pnpm test:live   # FORESTRIE_LIVE=1 plus FORESTRIE_BASE_URL, FORESTRIE_RPC_URL and the chain values
+pnpm test:live   # FORESTRIE_LIVE=1 plus FORESTRIE_BASE_URL, FORESTRIE_RPC_URL, UNIVOCITY_ADDRESS, CHAIN_ID and GENESIS_CBOR_B64
 ```
 
 Conventions, invariants and the release path are in [AGENTS.md](AGENTS.md).
 
 ## Dependencies
 
-Exact pins, bumped deliberately: `@forestrie/mcp-verify` (core export
-only), `@forestrie/scrapi-client`, `@forestrie/receipt-verify`,
-`@forestrie/encoding`, `@modelcontextprotocol/sdk`. The chain read is three
-JSON-RPC calls made locally through the injected `fetchImpl`.
+Exact pins in `package.json`, bumped deliberately. Of
+`@forestrie/mcp-verify`, only the `"."` core export is used. Every request,
+the chain reads included, goes through an injected `fetchImpl`.
 
 ## License
 

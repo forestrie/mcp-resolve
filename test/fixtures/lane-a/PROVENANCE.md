@@ -1,12 +1,12 @@
 # lane-a fixtures — five recorded exchanges, frozen
 
-Captured 2026-09-13 by a runner for plan-2609-05 step 2.1. Each URL was
+Captured 2026-09-13. Each URL was
 requested exactly once with `curl` (no redirect following); the raw response
 headers are in `<name>.headers.txt`, the body (where there was one) in the
 body file named below, and `<name>.meta.json` holds the URL, method, time,
 status, headers as an object, body sha256 and byte count. Lane A
 (`https://api-a.forest-2.forestrie.dev`, service id `canopy-dev-1`) is an
-example lane, not a default (N8). The publications log
+example lane, not a default. The publications log
 `e8345800-a747-4e62-9409-61622b836f1f` under the forest bootstrap log
 `67876864-3b46-67ae-dcb3-13cc81624aa5` is where `@forestrie/mcp-verify`
 0.4.0 registered its own release provenance.
@@ -40,20 +40,17 @@ example lane, not a default (N8). The publications log
   randomised). Both copies verify identically with the installed verifier's
   `verifyReceipt` under `known-log-key` with `fixtures/self/log-key.xy.b64`,
   `statement.cose` as payload and the entry id: PASS, sealing ok, attribution
-  ok, split-view and append-authority not answered by that root. The plan's
-  "byte-identical" live assertion is therefore replaced by structural
-  identity plus identical verification (plan-2609-05 phase 2 amendment).
-  The content type is `application/scitt-receipt+cbor`, not the
-  `application/cbor` the plan's runtime-facts table recorded for this
-  route.
+  ok, split-view and append-authority not answered by that root. So the
+  live tests assert structural identity plus identical verification, not
+  byte identity. The content type is `application/scitt-receipt+cbor`.
 - **status-unknown.** For a content hash that was never registered the lane
   does NOT answer a problem-details 404: it answers 303 with `Location`
   pointing back at the same status URL and `retry-after: 1`, i.e. the same
   shape as "pending". `src/core/classify.ts` maps a 303 whose `Location` is
   not a receipt URL to `pending`, so this fixture is the `pending` case;
   there is no captured 404 on this route. A 429 cannot be captured on demand
-  either; step 2.5 synthesises one from the 2026-09-12 `error code: 1027`
-  body shape and marks it as such.
+  either; `../synthetic/` holds one synthesised from the 2026-09-12
+  `error code: 1027` body shape, marked as such.
 - **genesis.** 160 bytes, the same bytes as the installed verifier's
   `fixtures/self/genesis.cbor` and its `test/fixtures/self-bundle/genesis.cbor`.
   The chain binding it carries (label `-68011` contract address, `-68013`
@@ -70,6 +67,6 @@ release self-registration of which `receipt-self.cbor` is a served copy.
 Tests read them from here, never from the installed mcp-verify, whose
 `fixtures/self/` is regenerated at every release.
 
-These files are FROZEN (N6 gate 6, execution-model item 10). `manifest.json`
-carries the sha256 of every file here except itself. A new capture is a new
-orchestrator-authorised runner step, never a worker fetch.
+These files are FROZEN. `manifest.json` carries the sha256 of every file here
+except itself. A new capture replaces them in a commit of its own; tests never
+fetch.

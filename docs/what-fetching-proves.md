@@ -58,7 +58,7 @@ records why a copy fetched at check time is different: the operator is then
 supplying both the receipt and the root it is checked under, so a pass
 proves consistency with a document the operator chose to serve today. That
 is `known-log-key` with the key fetched from the operator, which the
-reference CLI says never to do.
+`forestrie` CLI says never to do.
 
 This package therefore treats `fetch_genesis` as a capture tool. Obtain the
 document once, keep it, and pass it as bytes from then on. The composed
@@ -180,6 +180,9 @@ It appends diagnostics of its own:
   from the operator's API in this call_.
 - `root_read_from_chain` — when the chain path was taken: _the accumulator
   was read from the chain in this call, at the caller's RPC URL_.
+- `root_read_from_chain_history` — as well, when that accumulator was
+  selected from published checkpoint history: _the accumulator was selected
+  from published checkpoint history in this call, at the caller's RPC URL_.
 - `receipt_log_id_mismatch` — when the receipt's delegation certificate
   names a different log from the one the call named: _the receipt's
   delegation certificate names log <cert>, the call named <caller>_. The
