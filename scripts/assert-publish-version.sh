@@ -37,8 +37,8 @@
 #   2. A GITHUB_REF-consistency check ported from forestrie-cli's
 #      scripts/assert-tag-version.ts, which the canopy script lacks: when the
 #      caller names an expected tag, it must be the ref actually being built.
-#      That script is Bun, and D1 removes Bun; the check is worth keeping, so
-#      it moves here.
+#      That script is Bun, and this repo has no Bun; the check is worth
+#      keeping, so it moves here.
 #
 # Usage: assert-publish-version.sh [package-dir] [expected-tag]
 #   e.g. assert-publish-version.sh
