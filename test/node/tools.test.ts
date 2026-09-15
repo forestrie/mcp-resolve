@@ -111,7 +111,7 @@ const TOOL_NAMES: ToolName[] = [
   "verify_fetched_receipt",
 ];
 
-const N5_ANNOTATIONS = {
+const TOOL_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
@@ -418,7 +418,7 @@ describe("tools/list", () => {
 
       for (const tool of tools) {
         const name = tool.name as ToolName;
-        expect(tool.annotations).toEqual(N5_ANNOTATIONS);
+        expect(tool.annotations).toEqual(TOOL_ANNOTATIONS);
         expect(tool.title).toBe(TOOL_TITLES[name]);
         expect(tool.description).toBe(TOOL_DESCRIPTIONS[name]);
       }

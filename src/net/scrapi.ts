@@ -98,8 +98,9 @@ export type FetchReceiptInput =
  * `receipt-location`), through `@forestrie/scrapi-client`'s
  * `resolveReceiptRaw`: one request, `redirect: "manual"`, with `Accept`
  * defaulting to `SCITT_RECEIPT_COSE_CONTENT_TYPE`
- * (`application/scitt.receipt+cose`). No fixture or test pins the request's
- * `Accept` header, only the response's `content-type`.
+ * (`application/scitt.receipt+cose`) rather than the `application/cbor`
+ * `queryRegistration` sends. The difference is deliberate; no fixture or test
+ * pins the request's `Accept` header, only the response's `content-type`.
  */
 export async function fetchReceipt(
   input: FetchReceiptInput,

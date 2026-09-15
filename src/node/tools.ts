@@ -1611,8 +1611,8 @@ async function handleVerifyFetchedReceipt(
     // call has no coordinates to fall back to) — else the id the receipt's
     // own delegation certificate names, decoded from the bytes just fetched.
     // Absent both, missing_input, before any chain request. The decode and
-    // the cross-check below cost no request, so the request order and counts
-    // are unchanged.
+    // the cross-check below read only the receipt bytes already fetched, so
+    // they add no request.
     const callerLogId: string | undefined =
       args.trust.chain.logId ??
       ("logId" in locator.value ? locator.value.logId : undefined);
@@ -1625,7 +1625,7 @@ async function handleVerifyFetchedReceipt(
       // the zero-padded contract forms, so a dash/case/0x difference
       // alone never reads as a mismatch. A caller id that doesn't parse
       // as a log id at all is left for `resolveChainInput`/the calldata
-      // build below to reject, as today.
+      // build below to reject.
       const callerContractForm = tryContractLogId(callerLogId);
       // Provenance reports the id in lowercase UUID form, whatever surface
       // form the caller used. An unparseable id is echoed as

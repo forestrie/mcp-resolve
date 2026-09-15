@@ -8,13 +8,8 @@
  * fetched-at-check-time source.
  *
  * Delegates the label table and the byte-level decode to
- * `@forestrie/receipt-verify`'s own `decodeChainBindingFromGenesis`, whose
- * labels and validation order are byte-identical
- * to the local table this module used to define — verified against lane
- * A's genesis document (2026-09-13) before this, and mirrored deliberately
- * in receipt-verify 1.1.0's own docstrings ("so that consumer can delete
- * its own copy") — so only what this module's own callers depend on is
- * still kept local: a `GenesisBindingError` with `.code`/`.reason`
+ * `@forestrie/receipt-verify`'s own `decodeChainBindingFromGenesis`. Only
+ * what this module's own callers depend on is kept local: a `GenesisBindingError` with `.code`/`.reason`
  * (`src/node/tools.ts`'s `guardHandler` matches on it by `instanceof`), and
  * `forestLogId` formatted as a UUID string rather than the raw 32-byte wire
  * value receipt-verify's own `ChainBinding.logId` carries.

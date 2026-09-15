@@ -60,8 +60,8 @@ describe("readLogState", () => {
     );
     for (const call of replay.calls) {
       // @forestrie/chain-rpc's `ethRpc` sends
-      // `Content-Type` (capital C), not this module's own prior
-      // `content-type` — a wire-equivalent, case-only difference; HTTP
+      // `Content-Type` (capital C) rather than `content-type` — a
+      // wire-equivalent, case-only difference; HTTP
       // header names are case-insensitive.
       expect(call.init?.headers).toMatchObject({
         "Content-Type": "application/json",

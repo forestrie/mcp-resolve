@@ -17,7 +17,8 @@
  *    the process mid-write truncates whatever the stdio transport had
  *    buffered. The wrapper sets `process.exitCode` and lets node drain.
  *
- * Registers the seven tools (see `server.ts`). `createServer()` is called with
+ * Serves the seven tools `createServer()` (`server.ts`) registers. It is
+ * called with
  * no `deps`, so it reads `process.env` and calls the real `globalThis.fetch` —
  * exactly what `npx -y @forestrie/mcp-resolve` should do.
  */

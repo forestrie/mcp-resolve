@@ -18,8 +18,8 @@
  * certificate that isn't a decodable COSE_Sign1, a certificate payload
  * with no claim `1`, or a claim `1` that isn't 32 or 64 hex characters,
  * all return `undefined` rather than an error — this is a cross-check and a
- * fallback default, not a validation gate on receipts that predate it or
- * never carry a certificate.
+ * fallback default, not a validation gate on receipts that carry no
+ * certificate.
  */
 import {
   decodeCborDeterministic,

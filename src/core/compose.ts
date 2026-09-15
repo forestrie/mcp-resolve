@@ -114,7 +114,7 @@ export async function verifyFetched(
  * `@forestrie/mcp-verify`'s `VerifyResult.reason`) — as opposed to any
  * other failure. This is the one case the history fallback applies to; every
  * other failure (a bad signature, a stale snapshot, a malformed receipt)
- * is answered as today, with no history scan.
+ * is returned as is, with no history scan.
  */
 export function isPeakNotInKnownAccumulator(result: {
   ok: boolean;
