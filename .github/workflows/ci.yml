@@ -172,9 +172,7 @@ jobs:
         run: ./actionlint -color
 
       # Prove BOTH paths of the version guard on every PR. A guard that has
-      # only ever been seen to pass is not a guard. (scripts/assert-publish-
-      # version.sh is bootstrapped ahead of the publish.yml that will call
-      # it — phase 3.)
+      # only ever been seen to pass is not a guard.
       - name: assert-publish-version self-test — pass path
         run: |
           version=$(node -p "require('./package.json').version")
@@ -238,8 +236,8 @@ jobs:
       # server.json can't read version/name from package.json at build time
       # (it's a static file the registry fetches directly), so prove both
       # paths of the guard that keeps them honest. assert-server-json.mjs
-      # imports ajv/ajv-formats (F6), so this job now needs dependencies
-      # installed before these self-tests run.
+      # imports ajv/ajv-formats, so this job needs dependencies installed
+      # before these self-tests run.
       - name: assert-server-json self-test — pass path
         run: node scripts/assert-server-json.mjs .
 

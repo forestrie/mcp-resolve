@@ -10,14 +10,15 @@
  * and fails on any edge to a node builtin, so that boundary is proven on
  * every test run and before every publish, not asserted.
  *
- * Phase 1 step 1.6 (plan-2609-05) adds the pure layer proper: `endpoints.ts`
- * (URL + calldata builders), `chain.ts` (logState ABI decode + known-
- * accumulator snapshot builder), `genesis-binding.ts` (the forest's chain
- * binding, decoded from a genesis document — N2 amendment A),
- * `classify.ts` (response classification, N8), `provenance.ts`
- * (the honesty rule's fixed `SUPPORTS` table, N3), `compose.ts`
- * (`verifyFetched` / `summarizeFetched` over the verifier's own core), and
- * `result.ts` (`FetchedVerifyResult`).
+ * The modules: `endpoints.ts` (URL + calldata builders), `chain.ts`
+ * (logState ABI decode + known-accumulator snapshot builder),
+ * `genesis-binding.ts` (the forest's chain binding, decoded from a genesis
+ * document), `classify.ts` (response classification), `provenance.ts` (the
+ * honesty rule's fixed `SUPPORTS` table), `compose.ts` (`verifyFetched` /
+ * `summarizeFetched` over the verifier's own core), `result.ts`
+ * (`FetchedVerifyResult`), `history.ts` (published checkpoint history),
+ * `grant-leaf.ts` (grant-receipt leaf inputs), `receipt-log-id.ts` (the log
+ * id a receipt's delegation certificate names) and `version.ts`.
  */
 
 export {

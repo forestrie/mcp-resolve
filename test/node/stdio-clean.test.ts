@@ -1,5 +1,5 @@
 /**
- * N6 gate 4, made part of `vitest run --project unit` rather than only its
+ * The stdio-clean gate, made part of `vitest run --project unit` rather than only its
  * own separately-invoked `check:stdio-clean` package script: spawns the
  * real bin (`scripts/check-stdio-clean.mjs` unaltered — mirroring it, not
  * duplicating its logic) and asserts it exits 0.

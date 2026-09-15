@@ -2,18 +2,14 @@
  * Thin GET wrappers over the four SCRAPI routes `src/core/endpoints.ts`
  * builds. Each makes exactly one request — `redirect: "manual"`, so a 303
  * comes back as a 303 with its `Location` header rather than being
- * followed (the plan's one-request rule: a followed redirect is a second
+ * followed (one request per call: a followed redirect would be a second
  * request) — and returns the raw `{status, headers, body, at}` for
  * `src/core/classify.ts` to interpret. Never throws on a non-2xx status;
- * `NetError` is thrown only when no response was obtained at all
- * (plan-2609-05 step 2.3).
+ * `NetError` is thrown only when no response was obtained at all.
  *
  * `queryRegistration` and `fetchReceipt` go through `@forestrie/scrapi-client`
- * 0.2.2's `queryRegistrationRaw` / `resolveReceiptRaw` (plan-2609-06 F7):
- * unlike the 0.1.4 poll-once primitives this module used to have to avoid
- * (each discarded headers/body for every status but its one success case —
- * see plan-2609-06 F7's history for the old reasoning), the `*Raw`
- * siblings return the uniform `{url, status, headers, body, at}` exchange
+ * 0.2.2's `queryRegistrationRaw` / `resolveReceiptRaw`. These return the
+ * uniform `{url, status, headers, body, at}` exchange
  * for EVERY status, structurally identical to this module's own
  * `RawResponse` (`./types.js`), so the mapping onto the classifier's view
  * is the identity: no field renaming, no status narrowing. Neither
@@ -32,7 +28,7 @@
  * The primitives scrapi-client exports that classification actually needs
  * — `RECEIPT_LOCATION_RE`, `parseEntryIdFromReceiptLocation`,
  * `decodeProblemDetailsBytes`, `toAbsoluteScrapiUrl` — are already imported
- * directly by `src/core/classify.ts` (phase 1) and are unchanged in 0.2.2.
+ * directly by `src/core/classify.ts`.
  */
 import {
   queryRegistrationRaw,
@@ -62,9 +58,8 @@ export async function fetchScittConfiguration(
 }
 
 /** `GET {baseUrl}/logs/{bootstrap}/{logId}/entries/{contentHash}`, through
- *  `@forestrie/scrapi-client`'s `queryRegistrationRaw` (F7): the same
- *  one-request, `redirect: "manual"` GET this module always made, with the
- *  same default `Accept: application/cbor`. */
+ *  `@forestrie/scrapi-client`'s `queryRegistrationRaw`: one request,
+ *  `redirect: "manual"`, `Accept: application/cbor`. */
 export async function queryRegistration(
   input: {
     baseUrl: string;
@@ -101,13 +96,10 @@ export type FetchReceiptInput =
  * `GET {baseUrl}/logs/{bootstrap}/{logId}/{massifHeight}/entries/{entryId}/receipt`,
  * or a receipt URL already in hand (e.g. from `query_registration`'s
  * `receipt-location`), through `@forestrie/scrapi-client`'s
- * `resolveReceiptRaw` (F7): the same one-request, `redirect: "manual"` GET
- * this module always made. `resolveReceiptRaw` defaults `Accept` to
- * `SCITT_RECEIPT_COSE_CONTENT_TYPE` (`application/scitt.receipt+cose`,
- * plan-2609-07 decision L4) rather than this module's own prior
- * `application/cbor` — no fixture or test in this package pins the
- * request's `Accept` header, only the response's `content-type`, so this
- * is the one deliberate wire-behaviour change F7 brings along.
+ * `resolveReceiptRaw`: one request, `redirect: "manual"`, with `Accept`
+ * defaulting to `SCITT_RECEIPT_COSE_CONTENT_TYPE`
+ * (`application/scitt.receipt+cose`). No fixture or test pins the request's
+ * `Accept` header, only the response's `content-type`.
  */
 export async function fetchReceipt(
   input: FetchReceiptInput,

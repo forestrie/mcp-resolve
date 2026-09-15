@@ -59,7 +59,7 @@ describe("readLogState", () => {
       replay.fixture.calls["eth_call"]!.request.params,
     );
     for (const call of replay.calls) {
-      // @forestrie/chain-rpc's `ethRpc` (plan-2609-06 F7) sends
+      // @forestrie/chain-rpc's `ethRpc` sends
       // `Content-Type` (capital C), not this module's own prior
       // `content-type` — a wire-equivalent, case-only difference; HTTP
       // header names are case-insensitive.
@@ -110,11 +110,11 @@ describe("readLogState", () => {
       { fetchImpl: replay.fetch },
     );
 
-    // @forestrie/chain-rpc's `ethRpc` (F7) itself drops the HTTP status for
+    // @forestrie/chain-rpc's `ethRpc` itself drops the HTTP status for
     // a JSON-RPC-level error (its own thrown message is just
     // `error.message`) — `callJsonRpc` recovers it from the real
     // `Response.status` of the one request this makes, not from ethRpc's
-    // message text, so `status` is still exactly what it was pre-F7.
+    // message text, so `status` is the real HTTP status.
     expect(result).toEqual({
       kind: "problem",
       problem: { code: "rpc_error", status: 200, message: "boom" },
@@ -308,7 +308,7 @@ describe("readChainHead", () => {
   });
 });
 
-describe("the chain path always goes through the injected fetchImpl (F7)", () => {
+describe("the chain path always goes through the injected fetchImpl", () => {
   it("never touches globalThis.fetch, even when it throws (readLogState, via ethRpc)", async () => {
     const replay = await createChainReplay();
     const originalFetch = globalThis.fetch;

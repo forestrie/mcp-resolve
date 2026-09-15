@@ -2,7 +2,7 @@
  * `FetchedVerifyResult`: the verifier's own `VerifyResult`, with `courier`
  * identity attached and `diagnostics` widened to admit the two courier
  * codes `compose.ts` appends. Every other field is the verifier's,
- * untouched (plan-2609-05 N3).
+ * untouched.
  */
 import type {
   AnchorReport,

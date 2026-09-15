@@ -1,19 +1,17 @@
 /**
- * The six N2 tools, plus the seventh, `fetch_checkpoint_history`
- * (plan-2609-06 F4): zod input/output shapes and handlers. Every handler
+ * The seven tools' zod input/output shapes and handlers. Every handler
  * returns `{ content, structuredContent, isError: false }` — an HTTP
  * problem, a 429, a `NetError`, a chain problem, and a malformed input are
- * ALL a `structuredContent.problem`, never a throw (N8, AGENTS.md). Only a
+ * ALL a `structuredContent.problem`, never a throw. Only a
  * genuine programming error escapes `guardHandler` below and becomes an
  * MCP-level tool error.
  *
  * Every `structuredContent` carries `supports` (`SUPPORTS[toolName]`,
  * verbatim from `src/core/provenance.ts`) and, for every artefact actually
- * obtained, `provenance` (N3). `verify_fetched_receipt` never uses a
+ * obtained, `provenance`. `verify_fetched_receipt` never uses a
  * genesis fetched in the same call as its root: the input schema's `trust`
  * union admits caller-supplied bytes or `{root:"known-accumulator",
- * chain:…}` only — there is no fetched-genesis variant (N2 "explicitly
- * out").
+ * chain:…}` only — there is no fetched-genesis variant.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -114,7 +112,7 @@ const AddressSchema = z
   .min(1)
   .describe("0x-prefixed or bare 40-hex address");
 
-/** F2/1.5.4: bounds for the backward `CheckpointPublished` scan. Lives
+/** Bounds for the backward `CheckpointPublished` scan. Lives
  *  ONLY on the chain union — `chain.history` for both `fetch_accumulator`
  *  and `verify_fetched_receipt`'s `trust.chain` — never a top-level
  *  `history` on either tool. */
@@ -151,18 +149,18 @@ const ForReceiptInputSchema = z
   })
   .describe(FOR_RECEIPT_INPUT_DESCRIPTION);
 
-/** N2 amendment A: the chain binding comes from a genesis you hold, or is
+/** The chain binding comes from a genesis you hold, or is
  *  given explicitly. There is no third form, and `rpcUrl` is the only
  *  field this package will ever read from the environment. `history`
- *  (plan-2609-06 F2) lives on this union alone, so both `fetch_accumulator`
+ *  lives on this union alone, so both `fetch_accumulator`
  *  (`chain.history`) and `verify_fetched_receipt` (`trust.chain.history`)
  *  read it from the same place.
  *
  *  `logId` is required here, and in the fixed `ChainInputSchema` below —
  *  `fetch_accumulator` (including `forReceipt`) and `fetch_checkpoint_history`
- *  keep it required (plan-2609-06 2.2 ruling 1). `verify_fetched_receipt`
- *  alone takes `logId` optional, via `VerifyChainInputSchema` below
- *  (F3, ruling 3): its caller may rely on the receipt's own
+ *  keep it required. `verify_fetched_receipt`
+ *  alone takes `logId` optional, via `VerifyChainInputSchema` below: its
+ *  caller may rely on the receipt's own
  *  delegation-certificate log id instead of naming one. */
 function chainInputSchema<
   L extends typeof LogIdSchema | z.ZodOptional<typeof LogIdSchema>,
@@ -198,10 +196,9 @@ function chainInputSchema<
 
 const ChainInputSchema = chainInputSchema(LogIdSchema);
 
-/** `verify_fetched_receipt`'s `trust.chain` alone (F3, plan-2609-06 2.2,
- *  ruling 3): same shape as `ChainInputSchema`, but `logId` is optional —
+/** `verify_fetched_receipt`'s `trust.chain` alone: same shape as `ChainInputSchema`, but `logId` is optional —
  *  omitted, the caller falls back to the id the receipt's own
- *  delegation certificate names (decision F3); naming neither is
+ *  delegation certificate names; naming neither is
  *  `missing_input`, before any chain request. */
 const VerifyChainInputSchema = chainInputSchema(LogIdSchema.optional());
 
@@ -248,7 +245,7 @@ const TrustRootWireSchema = z.discriminatedUnion("root", [
 
 /** Bytes you supply, or (known-accumulator only) a chain read in this call.
  *  Deliberately NOT admitting `{root:"genesis", fetch:…}` or any other
- *  fetched-genesis form (N2 "explicitly out"). */
+ *  fetched-genesis form. */
 const TrustInputSchema = z
   .union([
     TrustRootWireSchema,
@@ -263,10 +260,10 @@ const TrustInputSchema = z
 
 /* ------------------------------ output shapes ------------------------------ */
 
-/** F1/F2: present only when the accumulator came from a checkpoint
+/** Present only when the accumulator came from a checkpoint
  *  selected out of published history rather than the latest `logState`.
  *  `blockNumber`/`blockHash`/`size` name that one selected checkpoint
- *  (`fetch_accumulator`, `verify_fetched_receipt`); F4's
+ *  (`fetch_accumulator`, `verify_fetched_receipt`);
  *  `fetch_checkpoint_history` returns every checkpoint in range rather
  *  than selecting one, so its own `provenance.history` carries only the
  *  scan's bounds and cost. */
@@ -352,7 +349,7 @@ export const fetchReceiptInputShape = { ...receiptLocatorFieldsShape };
 export const fetchReceiptOutputShape = {
   receipt: BytesSummarySchema.optional(),
   decoded: z.unknown().optional(),
-  /** F3 (plan-2609-06 2.4): the log id the receipt's own delegation
+  /** The log id the receipt's own delegation
    *  certificate names, decoded from these same bytes — no default logic
    *  here (that's `verify_fetched_receipt` alone); present only when the
    *  receipt carries a certificate at all. */
@@ -371,7 +368,7 @@ export const fetchGenesisOutputShape = {
   chainBinding: ChainBindingSchema.optional(),
   /** The bootstrap public key as `x‖y` hex (64 bytes -> 128 hex chars),
    *  decoded via `@forestrie/receipt-verify`'s
-   *  `decodeTrustRootDetailsFromGenesis` (plan-2609-06 F7). Omitted, not an
+   *  `decodeTrustRootDetailsFromGenesis`. Omitted, not an
    *  error, for a KS256 v2 bootstrap key — an on-chain address, not a
    *  P-256 public key — which `bootstrapKeyXy` has nothing to carry for. */
   bootstrapKeyXy: z.string().optional(),
@@ -406,7 +403,7 @@ export const fetchAccumulatorOutputShape = {
   problem: ProblemSchema.optional(),
 };
 
-/** F4: the chain union alone, no `forReceipt` — this tool never selects
+/** The chain union alone, no `forReceipt` — this tool never selects
  *  one checkpoint, it returns every checkpoint the scan covers. */
 export const fetchCheckpointHistoryInputShape = {
   chain: ChainInputSchema,
@@ -422,7 +419,7 @@ export const fetchCheckpointHistoryOutputShape = {
         txHash: z.string(),
         /** base64 `toKnownAccumulator(cp, binding)` — keep it, and pass it
          *  back to `verify_fetched_receipt` as supplied `trust.accumulator`
-         *  bytes (F4). */
+         *  bytes. */
         snapshot: z.string(),
       }),
     )
@@ -477,7 +474,7 @@ export const verifyFetchedReceiptOutputShape = {
     .object({
       receipt: ProvenanceSchema,
       root: ProvenanceSchema,
-      /** F3 (plan-2609-06 2.2): present whenever a chain read happens —
+      /** Present whenever a chain read happens —
        *  which log id was used, and whether it came from the caller or
        *  (absent a caller id) the receipt's own delegation certificate. */
       logId: z
@@ -621,7 +618,7 @@ function resolveRpcUrl(
  * an `EndpointError` (a bad baseUrl/logId/address string), a
  * `GenesisBindingError` (an unusable genesis document) or a `NetError` (no
  * response at all) are all "the input, or the network, did not cooperate" —
- * a `structuredContent.problem`, never a throw (N8). Anything else is a
+ * a `structuredContent.problem`, never a throw. Anything else is a
  * programming error and is left to propagate as an MCP tool error.
  */
 async function guardHandler(
@@ -753,7 +750,7 @@ async function fetchAndClassifyReceipt(
 
 /* ----------------------------- chain input -------------------------------- */
 
-/** F2: `history` bounds for the backward `CheckpointPublished` scan. */
+/** `history` bounds for the backward `CheckpointPublished` scan. */
 type HistoryInput = {
   fromBlock?: number | undefined;
   maxBlocks?: number | undefined;
@@ -775,8 +772,7 @@ type ChainInput =
       history?: HistoryInput | undefined;
     };
 
-/** `verify_fetched_receipt`'s `trust.chain` alone (F3, plan-2609-06 2.2,
- *  ruling 3): `ChainInput`, but `logId` optional — the handler resolves
+/** `verify_fetched_receipt`'s `trust.chain` alone: `ChainInput`, but `logId` optional — the handler resolves
  *  the effective id (caller's, or the receipt's own delegation
  *  certificate) before ever building a plain `ChainInput` for
  *  `resolveChainInput`. */
@@ -812,7 +808,7 @@ type ResolvedChain = {
   binding: "held-genesis" | "explicit";
 };
 
-/** F3 (plan-2609-06 2.2, ruling 4): `toContractLogId`'s own normalisation
+/** `toContractLogId`'s own normalisation
  *  and validation (strip dashes/`0x`, lowercase, 32 or 64 hex), but never
  *  throwing — `undefined` for anything that doesn't parse, so a caller's
  *  malformed id is left for the ordinary chain-input resolution to
@@ -825,8 +821,8 @@ function tryContractLogId(logId: string): string | undefined {
   }
 }
 
-/** The low 16 bytes of a `toContractLogId` result, dashed (ruling 4:
- *  "report ids in lowercase UUID form"). */
+/** The low 16 bytes of a `toContractLogId` result, dashed: log ids are
+ *  reported in lowercase UUID form. */
 function formatContractLogIdAsUuid(contractForm: string): string {
   const hex32 = contractForm.slice(-32);
   return [
@@ -1040,8 +1036,7 @@ async function handleFetchReceipt(
   }
 
   const provenance = fetchedProvenance(fetched.url, fetched.at);
-  // F3 (plan-2609-06 2.4): report only — no default logic here, unlike
-  // verify_fetched_receipt (ruling 1).
+  // Report only — no default logic here, unlike verify_fetched_receipt.
   const receiptLogId = decodeReceiptLogId(fetched.bytes)?.logId;
   return ok(
     `fetched receipt (${fetched.bytes.length} B) from ${fetched.url}`,
@@ -1082,7 +1077,7 @@ async function handleFetchGenesis(
   // by guardHandler — this handler does not need its own try/catch for it.
   const chainBinding = decodeChainBindingFromGenesis(classified.bytes);
 
-  // plan-2609-06 F7: the bootstrap public key as x‖y hex, straight from the
+  // The bootstrap public key as x‖y hex, straight from the
   // genesis bytes (never exported from the non-extractable CryptoKey a
   // trust-root decode would otherwise produce). `bootstrapKeyXy` is
   // `undefined` for a KS256 v2 bootstrap key (an on-chain address), and
@@ -1165,8 +1160,8 @@ async function handleFetchAccumulator(
   const { rpcUrl, univocity, logId, expectedChainId, binding } =
     resolved.value;
 
-  // forReceipt's leaf inputs are validated before any JSON-RPC call
-  // (F1/1.5.10; grant support added 2026-09-14): a payload receipt needs
+  // forReceipt's leaf inputs are validated before any JSON-RPC call: a
+  // payload receipt needs
   // both payload and entryId to recompute its peak; a grant receipt's
   // leaf inputs are derived by `grantLeafInputs`
   // (`../core/grant-leaf.js`), whose `GrantLeafInputError` is mapped to a
@@ -1271,7 +1266,7 @@ async function handleFetchAccumulator(
     binding,
   );
 
-  // Without forReceipt: unchanged (F1).
+  // Without forReceipt: the latest state, no history scan.
   if (leafInput === undefined) {
     return ok(
       `read accumulator (size ${result.size}) from ${result.univocity} on chain ${result.chainId} at block ${result.blockNumber}`,
@@ -1310,7 +1305,7 @@ async function handleFetchAccumulator(
     );
   }
 
-  // F1/F2: the latest state does not hold the peak — walk published
+  // The latest state does not hold the peak — walk published
   // history backwards from this read's own block.
   const scan = await scanCheckpointHistory(
     {
@@ -1396,7 +1391,7 @@ async function handleFetchAccumulator(
 /** One `PublishedCheckpoint`, structured for the wire: hex peaks (as
  *  `fetch_accumulator`'s `accumulator.peaks` are), and the same checkpoint
  *  as a `known-accumulator` snapshot (base64) the caller can keep and
- *  later pass back as `trust.accumulator` supplied bytes (F4). */
+ *  later pass back as `trust.accumulator` supplied bytes. */
 function publishedCheckpointStructured(
   cp: PublishedCheckpoint,
   binding: { chainId: number; univocity: string; logId: string },
@@ -1424,7 +1419,7 @@ async function handleFetchCheckpointHistory(
   const { rpcUrl, univocity, logId, expectedChainId, binding } =
     resolved.value;
 
-  // F4: the latest block only — no eth_call, this tool has no use for
+  // The latest block only — no eth_call, this tool has no use for
   // logState itself.
   const head = await readChainHead(
     {
@@ -1574,7 +1569,7 @@ function rpcUrlFromProvenance(p: Provenance): string | undefined {
 }
 
 /** The chain path's own state, kept around only so a `peak_not_in_known_accumulator`
- *  result can trigger F1's history scan from the same block/binding the
+ *  result can trigger the history scan from the same block/binding the
  *  initial `logState` read already established. `undefined` for a
  *  supplied root, which never scans. */
 type ChainScanContext = {
@@ -1611,16 +1606,13 @@ async function handleVerifyFetchedReceipt(
   let logIdMismatchDiagnostic: CourierDiagnostic | undefined;
 
   if (args.trust.root === "known-accumulator" && "chain" in args.trust) {
-    // F3 (plan-2609-06 2.2): the effective log id is the caller's
-    // whenever one was supplied — trust.chain.logId, else the receipt
-    // coordinates' logId (ruling 2; a receiptUrl call has no coordinates
-    // to fall back to) — else the id the receipt's own
-    // delegation-certificate names, decoded from the bytes just fetched
-    // (no extra request). Absent both, missing_input, before any chain
-    // request (ruling 3). This decode, and the cross-check below, happen
-    // for every chain-read call, ahead of the accumulator read that
-    // already came first (ruling 7): the decode costs no request, so the
-    // existing request order and counts are unchanged.
+    // The effective log id is the caller's whenever one was supplied —
+    // trust.chain.logId, else the receipt coordinates' logId (a receiptUrl
+    // call has no coordinates to fall back to) — else the id the receipt's
+    // own delegation certificate names, decoded from the bytes just fetched.
+    // Absent both, missing_input, before any chain request. The decode and
+    // the cross-check below cost no request, so the request order and counts
+    // are unchanged.
     const callerLogId: string | undefined =
       args.trust.chain.logId ??
       ("logId" in locator.value ? locator.value.logId : undefined);
@@ -1629,14 +1621,14 @@ async function handleVerifyFetchedReceipt(
     let effectiveLogId: string;
     if (callerLogId !== undefined) {
       effectiveLogId = callerLogId;
-      // Same normalisation rule as `toContractLogId` (ruling 4): compare
+      // Same normalisation rule as `toContractLogId`: compare
       // the zero-padded contract forms, so a dash/case/0x difference
       // alone never reads as a mismatch. A caller id that doesn't parse
       // as a log id at all is left for `resolveChainInput`/the calldata
       // build below to reject, as today.
       const callerContractForm = tryContractLogId(callerLogId);
       // Provenance reports the id in lowercase UUID form, whatever surface
-      // form the caller used (ruling 4). An unparseable id is echoed as
+      // form the caller used. An unparseable id is echoed as
       // given; the chain step below rejects it.
       logIdProvenanceValue = {
         source: "caller",
@@ -1766,7 +1758,7 @@ async function handleVerifyFetchedReceipt(
 
   let result = await runVerify(trust, rootProvenance);
 
-  // F1: the latest chain state didn't hold the peak — walk published
+  // The latest chain state didn't hold the peak — walk published
   // history backwards from this read's own block, re-verifying under
   // each candidate checkpoint (newest first) until one is ok.
   if (
@@ -1824,7 +1816,7 @@ async function handleVerifyFetchedReceipt(
       );
     }
 
-    // match: verify once more under the selected checkpoint (F1) — the
+    // match: verify once more under the selected checkpoint — the
     // final result and provenance are this checkpoint's, not the
     // intermediate `accepts` check's.
     const cp: PublishedCheckpoint = scan.checkpoint;
@@ -1853,8 +1845,7 @@ async function handleVerifyFetchedReceipt(
   const provenance = {
     receipt: receiptProvenance,
     root: rootProvenanceValue,
-    // F3 (plan-2609-06 2.2, ruling 6): present whenever a chain read
-    // happened above.
+    // Present whenever a chain read happened above.
     ...(logIdProvenanceValue !== undefined
       ? { logId: logIdProvenanceValue }
       : {}),
@@ -1869,7 +1860,7 @@ async function handleVerifyFetchedReceipt(
   const verb = kind === "grant" ? "verify-grant" : "verify";
   const text = summarizeFetched(verb, result, provenanceLine);
 
-  // F3: the mismatch diagnostic is tools.ts's own, appended alongside
+  // The mismatch diagnostic is tools.ts's own, appended alongside
   // (never instead of) compose.ts's courier diagnostics on `result`.
   const diagnostics =
     logIdMismatchDiagnostic !== undefined
@@ -1887,12 +1878,12 @@ async function handleVerifyFetchedReceipt(
 /* -------------------------------- exports --------------------------------- */
 
 /**
- * One factory per N2 tool: closes over `deps` and returns the
+ * One factory per tool: closes over `deps` and returns the
  * `registerTool` callback, wrapped in `guardHandler` so every escape is a
  * `structuredContent.problem` rather than a thrown MCP tool error (except
  * a genuine programming error, which `guardHandler` re-throws). `server.ts`
  * pairs each of these with its input/output raw shape above and the
- * shared N5 annotations object.
+ * shared annotations object.
  */
 export function makeFetchScittConfigurationTool(deps: ResolvedDeps) {
   return (args: { baseUrl?: string | undefined }) =>

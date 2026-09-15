@@ -1,5 +1,5 @@
 /**
- * Published checkpoint history (plan-2609-06 F1/F2): the only place the
+ * Published checkpoint history: the only place the
  * `eth_getLogs` calls for `CheckpointPublished` are made. Every window is
  * ONE JSON-RPC call, through `chain.ts`'s `callJsonRpc` (shared
  * interpretation, no second copy), backward from `latestBlock`, newest
@@ -238,8 +238,7 @@ export async function scanCheckpointHistory(
 /**
  * The same backward, chunked walk as `scanCheckpointHistory`, with no
  * early exit: every checkpoint in the budgeted range, newest first.
- * `fetch_checkpoint_history` (step 1.4) exposes this as a tool; this step
- * only implements and exports it.
+ * `src/node/tools.ts` exposes it as the `fetch_checkpoint_history` tool.
  */
 export async function fetchCheckpointHistory(
   input: ScanCheckpointHistoryInput,

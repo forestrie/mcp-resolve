@@ -10,7 +10,7 @@ import type { ClassifyView } from "../core/index.js";
 /**
  * Every function in `src/net` resolves to this instead of throwing on a
  * non-2xx status — a 404, a 429, a 5xx are all results for
- * `src/core/classify.ts` to interpret, never a throw (N8).
+ * `src/core/classify.ts` to interpret, never a throw.
  */
 export type RawResponse = {
   url: string;
@@ -26,8 +26,8 @@ export type RawResponse = {
 /**
  * Every `src/net` function takes this. `fetchImpl` defaults to
  * `globalThis.fetch`, so `test/net/**` can exercise this layer entirely
- * through injected fakes and the unit project's forbidden-fetch setup (N6
- * gate 2) never sees a real network call. `timeoutMs` defaults to 30s and
+ * through injected fakes and the unit project's forbidden-fetch setup
+ * never sees a real network call. `timeoutMs` defaults to 30s and
  * is enforced by both an `AbortSignal` (for a well-behaved `fetchImpl`) and
  * a timer race (so a `fetchImpl` that never settles, and ignores the
  * signal, still yields a `timeout` `NetError` rather than hanging the

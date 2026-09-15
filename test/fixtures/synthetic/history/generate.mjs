@@ -144,7 +144,7 @@ export function generate(outDir) {
   const logState = {
     capturedAt: realLogState.capturedAt,
     note:
-      "SYNTHESISED — plan-2609-06 step 1.2/1.3 buried-peak fixture. Not a " +
+      "SYNTHESISED — buried-peak fixture. Not a " +
       "real chain read: fabricated by test/fixtures/synthetic/history/generate.mjs " +
       "from the frozen real checkpoints in " +
       "test/fixtures/chain/history/e8345800-a747-4e62-9409-61622b836f1f/. " +

@@ -6,7 +6,7 @@
  * stray `console.log` corrupting the stdio framing — that needs a real
  * process, and it lives in `pnpm run check:stdio-clean`.
  *
- * This file runs under the forbidden-fetch global (N6 gate 2): every
+ * This file runs under the forbidden-fetch global: every
  * end-to-end call below goes through `createServer({ fetchImpl, env: {} })`
  * with a replayed fake `fetch` over the frozen fixtures
  * (`test/fixtures/lane-a/`, `test/fixtures/chain/`), never
@@ -16,7 +16,7 @@
  * happy-path call per fetch tool, and one input-validation check. The full
  * per-tool test matrix (429s, chain mismatches, malformed inputs,
  * `verify_fetched_receipt`'s composed paths, live-project assertions) is
- * step 2.5's `test/node/tools.test.ts`.
+ * `test/node/tools.test.ts`.
  */
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -121,7 +121,7 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("is exactly the seven tools, each N5-annotated with a non-empty description", async () => {
+  it("is exactly the seven tools, each annotated, with a non-empty description", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
 

@@ -1,6 +1,6 @@
 /**
  * `src/core/history.ts` over the FROZEN real fixtures
- * (`test/fixtures/chain/history/<logId>/`, plan-2609-06 step 1.2) plus
+ * (`test/fixtures/chain/history/<logId>/`) plus
  * synthetic `PublishedCheckpoint` values for the pure arithmetic
  * (`historyWindows`, `selectCheckpoint`) that don't need real bytes.
  */

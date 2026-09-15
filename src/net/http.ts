@@ -9,13 +9,13 @@
  * `rawGet` is this module's own transport, used for the two SCRAPI routes
  * `@forestrie/scrapi-client` 0.2.2 has no function for —
  * `.well-known/scitt-configuration` and `/api/forest/{logId}/genesis`
- * (plan-2609-06 F7; `dist/index.d.ts` lists only `register`,
- * `query-registration`, `resolve-receipt` and `problem-details`).
+ * (its `dist/index.d.ts` lists only `register`, `query-registration`,
+ * `resolve-receipt` and `problem-details`).
  *
- * `withNetErrors` is what `chain.ts` and `scrapi.ts`'s two migrated routes
+ * `withNetErrors` is what `chain.ts` and `scrapi.ts`'s two library-backed routes
  * (`queryRegistration`, `fetchReceipt`) wrap a caller's `fetchImpl` in
  * before handing it to `@forestrie/chain-rpc`'s `ethRpc` or
- * `@forestrie/scrapi-client`'s `*Raw` functions (F7): neither library
+ * `@forestrie/scrapi-client`'s `*Raw` functions: neither library
  * enforces a timeout of its own or distinguishes "no response was obtained
  * at all" from a response it simply doesn't interpret — `ethRpc` treats a
  * signal-ignoring `fetchImpl` as a hang (its own `AbortController` has
@@ -23,7 +23,7 @@
  * logic whatsoever, one bare `await doFetch(...)`. Wrapping the `fetchImpl`
  * itself, rather than the library call, is what keeps this package's
  * "`NetError` only when no response was obtained at all" invariant true for
- * routes this layer no longer calls `fetch` for directly — both libraries
+ * routes this layer does not call `fetch` for directly — both libraries
  * simply rethrow whatever their injected `fetchImpl` throws, `NetError`
  * included, so a `NetError` raised inside the wrapped `fetchImpl` reaches
  * `chain.ts`/`scrapi.ts` unchanged.

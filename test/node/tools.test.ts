@@ -1,7 +1,7 @@
 /**
  * The full per-tool test matrix over the frozen recorded-exchange fixtures
  * (`test/fixtures/lane-a/`, `test/fixtures/chain/`) and one synthesised 429
- * (`test/fixtures/synthetic/`, N8 — a 429 cannot be captured on demand).
+ * (`test/fixtures/synthetic/` — a 429 cannot be captured on demand).
  * `test/node/mcp-smoke.test.ts` already covers the happy-path shape once per
  * tool; this file is everything that smoke test explicitly deferred here:
  * annotations/description/title per tool, `supports`/`provenance` shape,
@@ -13,7 +13,7 @@
  * Every call goes through `createServer({ fetchImpl: <replay fake>, env })`
  * over the SDK's in-memory transport — never `globalThis.fetch`, which the
  * unit project's `test/setup/forbid-fetch.ts` already replaces with a
- * thrower (N6 gate 2).
+ * thrower.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -147,13 +147,13 @@ const BUNDLED_ENTRY_ID = utf8OfFile(
 const LANE_A_GENESIS_PATH = path.join(LANE_A_DIR, "genesis.cbor");
 const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
 /** The synthetic buried-peak fixture's fabricated "latest" `logState`
- *  (size 15, block 46795144) — plan-2609-06 F1/F2. */
+ *  (size 15, block 46795144). */
 const SYNTHETIC_LOGSTATE_PATH = path.join(
   SYNTHETIC_HISTORY_DIR,
   "logState.46795144.json",
 );
 /** The real (FROZEN) history capture's own "latest" `logState`, at the
- *  real chain's latest block, 46785144 — plan-2609-06 step 1.2. */
+ *  real chain's latest block, 46785144. */
 const REAL_LOGSTATE_PATH = path.join(
   HERE,
   "..",
@@ -184,7 +184,7 @@ function combineFetch(laneA: LaneAReplay, chain: ChainReplay): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
-/** F3 (plan-2609-06 2.2): a chain fake that answers `eth_chainId` /
+/** A chain fake that answers `eth_chainId` /
  *  `eth_getBlockByNumber` / `eth_call` by method name alone, from the same
  *  recorded `logState.46770471.json` fixture `createChainReplay` uses —
  *  but without that helper's strict params check, so a mismatch test can
@@ -239,7 +239,7 @@ function combineFetchLenient(
   }) as unknown as typeof fetch;
 }
 
-/** As `combineFetch`, plus routing an RPC-URL `eth_getLogs` call (F1/F2's
+/** As `combineFetch`, plus routing an RPC-URL `eth_getLogs` call (the
  *  history scan) to a `ChainHistoryReplay` instead of the plain
  *  `ChainReplay` (which only ever serves `eth_chainId`/
  *  `eth_getBlockByNumber`/`eth_call`, one `logState` read's worth). */
@@ -282,7 +282,7 @@ function combineChainAndHistory(
   }) as unknown as typeof fetch;
 }
 
-/** Gap check (plan-2609-06 phase 1 step 1.6): `historyWindows`
+/** Gap check: `historyWindows`
  *  (`src/core/history.ts`) documents it never produces the string
  *  `"earliest"`, and `test/net/replay.ts`'s chain-history replay already
  *  throws if one arrives — this asserts that directly against the
@@ -325,7 +325,7 @@ function rejectingFetch(message = "boom"): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
-/* -------- plan-2609-06 F7: a synthetic KS256-bootstrap-key genesis -------- *
+/* -------- a synthetic KS256-bootstrap-key genesis -------- *
  * `@forestrie/receipt-verify` 1.1.0 (`src/forest-genesis-labels.ts`) names
  * these two labels only from an internal module with no subpath export
  * (`package.json#exports` lists only "."), so they are hand-copied here —
@@ -411,7 +411,7 @@ function stripCourierDiagnostics(
 /* ---------------------------------------------------------------------- */
 
 describe("tools/list", () => {
-  it("every tool carries the N5 annotations, a title, and its exact text.ts description", async () => {
+  it("every tool carries the shared annotations, a title, and its exact text.ts description", async () => {
     await withClient({ env: {} }, async (client) => {
       const { tools } = await client.listTools();
       expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
@@ -661,7 +661,7 @@ describe("fetch_receipt", () => {
     expect(structured.receipt.sha256).toBe(RECEIPT_SHA256);
     expect(structured.receipt.byteLength).toBe(RECEIPT_BYTE_LENGTH);
     expect(structured.decoded.inclusion.mmrIndex).toBe("8");
-    // F3 (plan-2609-06 2.4): the log id lane-A's receipt's own delegation
+    // The log id lane-A's receipt's own delegation
     // certificate names — report only, no default logic here.
     expect(structured.receiptLogId).toBe(PUBLICATIONS_LOG_ID);
     expect(structured.provenance.source).toBe("fetched");
@@ -748,7 +748,7 @@ describe("fetch_receipt", () => {
 /* ---------------------------------- fetch_genesis -------------------------- */
 
 describe("fetch_genesis", () => {
-  it("fetches the genesis document: chainBinding, sha256, supports rows exactly the N3 sealing row, one request", async () => {
+  it("fetches the genesis document: chainBinding, sha256, supports rows exactly the sealing row, one request", async () => {
     const laneA = await createLaneAReplay();
     const result = await withClient(
       { fetchImpl: laneA.fetch, env: {} },
@@ -780,7 +780,7 @@ describe("fetch_genesis", () => {
     expect(structured.supports.rows).toEqual([
       { question: "sealing", root: "known-log-key" },
     ]);
-    // plan-2609-06 F7: the bootstrap public key as x‖y hex (64 bytes -> 128
+    // The bootstrap public key as x‖y hex (64 bytes -> 128
     // hex chars), decoded straight from the genesis bytes via
     // decodeTrustRootDetailsFromGenesis — the lane-A fixture's bootstrap
     // key is ES256, verified against a direct decode of genesis.cbor.
@@ -818,7 +818,7 @@ describe("fetch_genesis", () => {
     expect(synthetic.calls).toHaveLength(1);
   });
 
-  it("a KS256 bootstrap key omits bootstrapKeyXy rather than failing (plan-2609-06 F7)", async () => {
+  it("a KS256 bootstrap key omits bootstrapKeyXy rather than failing", async () => {
     const synthetic = createKs256GenesisFetch();
     const result = await withClient(
       { fetchImpl: synthetic.fetch, env: {} },
@@ -977,7 +977,7 @@ describe("fetch_accumulator", () => {
     expect(chain.calls).toHaveLength(3);
   });
 
-  /* -------- plan-2609-06 F1/F2: the buried-peak history fallback -------- */
+  /* -------- the buried-peak history fallback -------- */
 
   it("forReceipt: the synthetic latest state doesn't hold the peak, the scan finds the real size-11 checkpoint, provenance.history, 4 history requests", async () => {
     const chain = await createChainReplay(undefined, SYNTHETIC_LOGSTATE_PATH);
@@ -1019,7 +1019,7 @@ describe("fetch_accumulator", () => {
     expect(structured.supports).toEqual(SUPPORTS.fetch_accumulator);
 
     expect(chain.calls).toHaveLength(3); // the initial logState read
-    expect(history.calls).toHaveLength(4); // the buried-peak scan (F2)
+    expect(history.calls).toHaveLength(4); // the buried-peak scan
     assertNoEarliestFromBlock(history.calls);
   });
 
@@ -1528,7 +1528,7 @@ describe("verify_fetched_receipt", () => {
     expect(chain.calls).toHaveLength(3);
   });
 
-  /* -------- plan-2609-06 F1/F2: the buried-peak history fallback -------- */
+  /* -------- the buried-peak history fallback -------- */
 
   it("known-accumulator, chain history fallback: the synthetic latest state doesn't hold the peak, the scan finds the real size-11 checkpoint, split-view ok, both chain diagnostics, 4 history requests, anchor at block 46764680", async () => {
     const laneA = await createLaneAReplay();
@@ -1588,14 +1588,14 @@ describe("verify_fetched_receipt", () => {
       size: 11,
       requests: 4,
     });
-    // F2: provenance.source is "chain-read" even when the accumulator came
+    // provenance.source is "chain-read" even when the accumulator came
     // from history — "chain-read-history" is an internal rootProvenance
     // label only, never emitted in structuredContent.
     expect(structured.provenance.root.source).toBe("chain-read");
 
     expect(laneA.calls).toHaveLength(1);
     expect(chain.calls).toHaveLength(3); // the initial logState read
-    expect(history.calls).toHaveLength(4); // the buried-peak scan (F2)
+    expect(history.calls).toHaveLength(4); // the buried-peak scan
     assertNoEarliestFromBlock(history.calls);
   });
 
@@ -1787,12 +1787,12 @@ describe("verify_fetched_receipt", () => {
     expect(structured.problem.code).toBe("network");
   });
 
-  /* ---- plan-2609-06 2.2/F3: the receipt delegation-certificate log id ---- */
+  /* ---- the receipt delegation-certificate log id ---- */
 
-  describe("F3: the receipt's delegation-certificate log id", () => {
+  describe("the receipt's delegation-certificate log id", () => {
     /** A different, but equally well-formed, log id from lane-A's own
      *  (`PUBLICATIONS_LOG_ID`) — lane-A's receipt's delegation certificate
-     *  always names `PUBLICATIONS_LOG_ID` (runner 2.1 facts), so any other
+     *  always names `PUBLICATIONS_LOG_ID`, so any other
      *  id here is, by construction, a mismatch. */
     const DIFFERENT_LOG_ID = BOOTSTRAP_LOG_ID;
 

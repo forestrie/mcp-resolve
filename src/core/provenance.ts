@@ -1,10 +1,9 @@
 /**
- * The honesty rule as data (plan-2609-05 N3): where every fetched or
+ * The honesty rule as data: where every fetched or
  * chain-read artefact came from, and which of the verifier's four trust
  * questions the fetched material can serve as evidence for, under which
- * root. The `SUPPORTS` rows and notes are orchestrator prose
- * (plan-2609-05 execution-model.md item 12) — copied verbatim, never
- * rephrased; `test/core/supports-table.test.ts` asserts every row and note
+ * root. The `SUPPORTS` rows and notes are fixed wording, changed only on
+ * purpose; `test/core/supports-table.test.ts` asserts every row and note
  * against a literal copy, so a drift in either file is a red test.
  */
 import type { QuestionName, RootName } from "@forestrie/mcp-verify";
@@ -12,11 +11,11 @@ import type { QuestionName, RootName } from "@forestrie/mcp-verify";
 export type ProvenanceSource = "fetched" | "chain-read" | "supplied";
 
 /** Present only when the accumulator was selected from published
- *  `CheckpointPublished` history (F1/F2) rather than the latest `logState`
+ *  `CheckpointPublished` history rather than the latest `logState`
  *  read: the selected checkpoint's own block/size, and how much of the
  *  scan it cost. `blockNumber`/`blockHash`/`size` name the one checkpoint
  *  selected out of history (`fetch_accumulator`, `verify_fetched_receipt`);
- *  they are absent for `fetch_checkpoint_history` (F4), whose scan returns
+ *  they are absent for `fetch_checkpoint_history`, whose scan returns
  *  every checkpoint in range rather than selecting one, so only the scan's
  *  own bounds and cost apply there. */
 export type HistoryProvenance = {
@@ -36,13 +35,12 @@ export type Provenance = {
   history?: HistoryProvenance;
 };
 
-/** F3 (plan-2609-06 2.2): `verify_fetched_receipt`'s top-level
+/** `verify_fetched_receipt`'s top-level
  *  `provenance.logId`, present whenever a chain read happens — which log
  *  id was used to make it. `"caller"` when the caller supplied one
  *  (`trust.chain.logId`, or else the receipt coordinates' `logId`);
  *  `"receipt-delegation-certificate"` when the caller supplied neither
- *  and the id came from the receipt's own delegation certificate instead
- *  (decision F3). */
+ *  and the id came from the receipt's own delegation certificate instead. */
 export type LogIdProvenance = {
   source: "caller" | "receipt-delegation-certificate";
   value: string;
@@ -107,9 +105,9 @@ export const SUPPORTS: Record<ToolName, Supports> = {
  *  `compose.ts`'s `verifyFetched`: always `receipt_fetched_from_operator`;
  *  `root_read_from_chain` when the root came from a chain read (the
  *  latest `logState`, or a checkpoint selected from history); and
- *  `root_read_from_chain_history` (plan-2609-06 F1) additionally when that
+ *  `root_read_from_chain_history` additionally when that
  *  chain read walked published `CheckpointPublished` history rather than
- *  reading `logState` directly. `receipt_log_id_mismatch` (F3, 2.2) is
+ *  reading `logState` directly. `receipt_log_id_mismatch` is
  *  different: `src/node/tools.ts`'s `verify_fetched_receipt` appends it
  *  directly, not `compose.ts`, when the caller named a log id and the
  *  receipt's own delegation certificate names a different one — the call

@@ -1,8 +1,7 @@
 /**
  * Live project (`vitest --project live`), opt-in by `FORESTRIE_LIVE=1` and
- * NEVER a required check (N6 gate 6, N8) — the orchestrator runs this
- * personally against a captured lane and the caller's own RPC URL; a worker
- * never does. No setup file here (`vitest.config.ts`'s `live` project):
+ * NEVER a required check: it runs against a real lane and the caller's own
+ * RPC URL. No setup file here (`vitest.config.ts`'s `live` project):
  * this file deliberately makes real requests through the real `fetch`.
  *
  * Env-gated twice over: `describe.skipIf` on `FORESTRIE_LIVE` itself, and
@@ -12,7 +11,7 @@
  * fails loud rather than silently no-op'ing.
  *
  * Exactly three lane requests and one three-call chain read across the
- * whole file (plan-2609-05 step 2.5): `globalThis.fetch` is wrapped in a
+ * whole file: `globalThis.fetch` is wrapped in a
  * counter for the file's duration (real `fetch` underneath — this project
  * has no forbidden-fetch setup) and the final test asserts the total.
  */
@@ -169,7 +168,7 @@ type VerifyStructured = FetchedVerifyResult & {
 };
 
 describe.skipIf(!FORESTRIE_LIVE)(
-  "live: lane A, the verifier's own release entry (plan-2609-05 step 2.5)",
+  "live: lane A, the verifier's own release entry",
   () => {
     const missing = missingEnvVars();
     const skipMessage =
@@ -229,8 +228,8 @@ describe.skipIf(!FORESTRIE_LIVE)(
         // log grows past a fold, the served receipt's inclusion proof for
         // the same entry extends the bundled one: the MMR is append-only,
         // so the bundled path is a prefix of the served path. Lane A showed
-        // this on 2026-09-14, path 1 -> 3 hashes after two new registrations
-        // (plan-2609-06 phase 2 gate). The delegation certificate is
+        // this on 2026-09-14, path 1 -> 3 hashes after two new registrations.
+        // The delegation certificate is
         // re-issued too: its issued-at, expiry, id and signature change (the
         // same day, the verifier's release ran `forestrie delegate
         // --ttl-seconds 86400`), so it must keep its protected header and

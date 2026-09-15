@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * F5 (plan-2609-06 3.1, FOR-559): @forestrie/mcp-verify must never depend
- * back on @forestrie/mcp-resolve.
+ * @forestrie/mcp-verify must never depend back on @forestrie/mcp-resolve.
  *
  * This package (@forestrie/mcp-resolve) depends on @forestrie/mcp-verify
  * (exact pin, see package.json#dependencies) to know the shapes it fetches
- * material for. plan-2609-05 promised the verifier never depends back on
- * this package — a cycle here would mean mcp-verify's own dependency tree
+ * material for. The verifier must never depend back on this package: a
+ * cycle here would mean mcp-verify's own dependency tree
  * pulls in a second, possibly divergent copy of mcp-resolve, and would make
  * "install mcp-verify alone" pull in an MCP server nobody asked for.
  *

@@ -1,9 +1,8 @@
 /**
  * Outward-facing text for the MCP adapter: the server `instructions` string
- * and the seven tool descriptions. Orchestrator prose (plan-2609-05
- * execution-model item 12): the vocabulary is "trust roots" and "the four
- * questions", and nothing here ranks the roots. Workers wire these strings
- * in; they do not rephrase them. The `supports` notes themselves live in
+ * and the seven tool descriptions. The wording is deliberate: the
+ * vocabulary is "trust roots" and "the four questions", and nothing here
+ * ranks the roots. Change it on purpose, never in passing. The `supports` notes themselves live in
  * `src/core/provenance.ts` and are asserted verbatim by
  * `test/core/supports-table.test.ts`.
  */
@@ -55,8 +54,8 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
 };
 
 /**
- * The `history` input's `.describe()` (1.5.4, verbatim). Lives ONLY on the
- * chain union (F2): `chain.history` for `fetch_accumulator`,
+ * The `history` input's `.describe()`. Lives ONLY on the chain union:
+ * `chain.history` for `fetch_accumulator`,
  * `fetch_checkpoint_history` and `verify_fetched_receipt` — never a
  * top-level `history`.
  */

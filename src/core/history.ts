@@ -1,5 +1,5 @@
 /**
- * Published checkpoint history (plan-2609-06 F1/F2): decoding the
+ * Published checkpoint history: decoding the
  * univocity contract's `CheckpointPublished` event data, the backward
  * chunked window arithmetic the net layer walks, and the `known-accumulator`
  * snapshot builder for a checkpoint read from history rather than from
@@ -20,9 +20,8 @@ import {
 
 /**
  * keccak256 of `CheckpointPublished(bytes32,bytes32,bytes,address,bytes8,uint8,uint64,bytes32[],uint64,bytes32[])`
- * (univocity `IUnivocityEvents.sol`), verified 2026-09-13 (plan-2609-06 step
- * 1.1, cross-checked against `forestrie-cli`'s `verify-eventscan.ts:28-29`
- * and independently against the event declaration).
+ * (univocity `IUnivocityEvents.sol`), cross-checked against `forestrie-cli`'s
+ * `verify-eventscan.ts` and against the event declaration.
  */
 export const CHECKPOINT_PUBLISHED_TOPIC0 =
   "0x156942b408823cb05a16027962ea485fa7171d99779ee04094280b2569482426";
@@ -58,9 +57,8 @@ export type PublishedCheckpoint = {
  * grantIndex, grantPath[])`. `size` is word 3, and word 4 is the byte
  * offset (from the start of `data`) to the `accumulator` array — a length
  * word followed by that many 32-byte peaks — exactly the layout
- * `forestrie-cli`'s `decodeCheckpointPublishedData` reads (plan-2609-06
- * step 1.1; verified against the real fixtures in
- * `test/fixtures/chain/history/`). Malformed data throws `HistoryError`,
+ * `forestrie-cli`'s `decodeCheckpointPublishedData` reads (verified against
+ * the real fixtures in `test/fixtures/chain/history/`). Malformed data throws `HistoryError`,
  * never a fetch-layer error.
  */
 export function decodeCheckpointPublishedLog(log: {
@@ -120,7 +118,7 @@ export function sortNewestFirst(
 export type HistoryWindow = { from: bigint; to: bigint };
 
 /**
- * Backward, chunked scan windows, newest first (F2). Lowest block scanned
+ * Backward, chunked scan windows, newest first. Lowest block scanned
  * is `max(fromBlock ?? 0, latestBlock - maxBlocks + 1, 0)`. Window k:
  * `to_0 = latestBlock`, `from_k = max(to_k - chunkBlocks + 1, lowest)`,
  * `to_{k+1} = from_k - 1`; stops when `from_k == lowest`. Total coverage is
@@ -179,7 +177,7 @@ export function toKnownAccumulator(
 }
 
 /**
- * Newest-first, first accepted wins — F1's "compare the recomputed peak to
+ * Newest-first, first accepted wins — "compare the recomputed peak to
  * every peak" done by `accepts` (the verifier's own check), never
  * reimplemented here.
  */
