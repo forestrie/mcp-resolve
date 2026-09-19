@@ -46,6 +46,102 @@ Two public lanes exist and are examples, not defaults:
 
 Requires Node 20.11 or later.
 
+## A worked example: one receipt, end to end
+
+Every value below is public, and the ones that change per release come
+from the verifier's own tarball. `@forestrie/mcp-verify` registers each
+release in a Forestrie log and ships the receipt under `fixtures/self/`
+(`docs/self-registration.md` there), so the published package is a
+statement, a receipt, a genesis document and a log owner key that this
+package can fetch and verify against the live lane. The run below takes
+about four seconds and ends in `split-view ok` from a public RPC
+endpoint, with no key and no account.
+
+| Coordinate       | Value                                                                           | Where it comes from                                              |
+| ---------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| base URL         | `https://api-a.forest-2.forestrie.dev`                                          | lane A above (an example, not a default)                         |
+| bootstrap log    | `67876864-3b46-67ae-dcb3-13cc81624aa5`                                          | the forest root; also decoded from the genesis document          |
+| publications log | `e8345800-a747-4e62-9409-61622b836f1f`                                          | the log the verifier registers releases on                       |
+| content hash     | `sha256(fixtures/self/statement.cose)`                                          | the tarball; `fixtures/self/manifest.json` lists the same digest |
+| entry id         | `fixtures/self/entry-id.txt`                                                    | the tarball; `query_registration` returns it too                 |
+| massif height    | never typed                                                                     | inside the `receiptUrl` that `query_registration` returns        |
+| log owner key    | `fixtures/self/log-key.xy.b64` (base64 text)                                    | the tarball                                                      |
+| chain            | id 84532 (Base Sepolia), univocity `0x678768643b4667aedcb313cc81624aa560b7f0ca` | bound in the genesis document; `fetch_genesis` decodes it        |
+
+To have the tarball at hand in an empty directory:
+
+```
+npm i @forestrie/mcp-verify
+ls node_modules/@forestrie/mcp-verify/fixtures/self/
+shasum -a 256 node_modules/@forestrie/mcp-verify/fixtures/self/statement.cose
+```
+
+The sequence, with the arguments as JSON and the one-line result each
+call returned when run on 2026-09-19 against the published 0.4.1 bundle
+(its entry id is `a09f50a673030200000000000000000f`; yours is whatever
+`entry-id.txt` says):
+
+1. `fetch_scitt_configuration {"baseUrl": "https://api-a.forest-2.forestrie.dev"}`
+   → `fetched SCITT configuration (serviceId canopy-dev-1) from …/.well-known/scitt-configuration`
+2. `query_registration {"baseUrl": …, "bootstrapLogId": "67876864-3b46-67ae-dcb3-13cc81624aa5", "logId": "e8345800-a747-4e62-9409-61622b836f1f", "contentHash": "<sha256 of statement.cose>"}`
+   → `registration complete; receipt at https://api-a.forest-2.forestrie.dev/logs/67876864-…/e8345800-…/14/entries/a09f50a673030200000000000000000f/receipt`
+   — `status: "receipt-available"`, the `receiptUrl` (with the massif
+   height, 14, inside it) and `entryId`.
+3. `fetch_receipt {"receiptUrl": "<from step 2>"}`
+   → `fetched receipt (404 B) from …/receipt` — `receipt.sha256` equals
+   the digest of the tarball's `receipt.cbor`; `receiptLogId` names the
+   publications log.
+4. `fetch_genesis {"baseUrl": …, "logId": "67876864-3b46-67ae-dcb3-13cc81624aa5"}`
+   → `fetched genesis (160 B) from …/api/forest/67876864-…/genesis: univocity 0x678768643b4667aedcb313cc81624aa560b7f0ca on chain 84532`
+   — byte-identical to the tarball's `genesis.cbor`. Keep it: the calls
+   below pass it back as bytes, never fetched in the same call.
+5. `verify_fetched_receipt {"receiptUrl": …, "entryId": "<entry-id.txt>", "payload": {"path": "…/fixtures/self/statement.cose"}, "trust": {"root": "known-log-key", "keyXy": {"b64": "<contents of log-key.xy.b64>"}}}`
+   → `verify: PASS · root=known-log-key · sealing ok, split-view not answered at this root, append-authority not answered at this root, attribution ok`
+6. The same call with `"trust": {"root": "genesis", "genesis": {"path": "…/fixtures/self/genesis.cbor"}}`
+   → `verify: FAILED at signature (delegation_invalid) · root=genesis · …`
+   **This is expected**, not tampering: the genesis root's offline walk
+   resolves one delegation hop from the forest root, and the publications
+   log is a grandchild. The result carries
+   `genesis_root_reaches_direct_delegates_only` saying exactly that.
+   Verify this receipt under a key or an accumulator, as in 5 and 7.
+7. `verify_fetched_receipt {"receiptUrl": …, "entryId": …, "payload": …, "trust": {"root": "known-accumulator", "chain": {"genesis": {"path": "…/fixtures/self/genesis.cbor"}, "rpcUrl": "https://sepolia.base.org", "logId": "e8345800-a747-4e62-9409-61622b836f1f"}}}`
+   → `verify: PASS · root=known-accumulator · sealing ok, split-view ok, append-authority not answered at this root, attribution ok`
+   — `anchor.blockNumber`, `anchor.matchedPeak` and
+   `provenance.root.from.rpcUrl` say which chain state answered. If the
+   log has grown past the receipt's peak since, the same call looks back
+   through published checkpoints and adds `root_read_from_chain_history`.
+8. Optional: `fetch_accumulator {"chain": {…as in 7…}, "forReceipt": {"receipt": …, "payload": …, "entryId": …}}`
+   returns the snapshot as bytes to keep; later, `@forestrie/mcp-verify`'s
+   `verify_receipt` under `{"root": "known-accumulator", "accumulator":
+<those bytes>}` answers split-view again, offline.
+
+**The chain, and where to read it.** Step 7 needs JSON-RPC access to
+chain 84532 (Base Sepolia). This package ships no provider and names
+none as a default; `rpcUrl` (or `FORESTRIE_RPC_URL`) is yours. The
+endpoints below are third-party public services, listed only as examples
+of what answered unauthenticated when this example was written; use your
+own provider for anything beyond a first try.
+
+| Endpoint                                     | On 2026-09-19 |
+| -------------------------------------------- | ------------- |
+| `https://sepolia.base.org`                   | answered      |
+| `https://base-sepolia-rpc.publicnode.com`    | answered      |
+| `https://base-sepolia.drpc.org`              | answered      |
+| `https://base-sepolia.gateway.tenderly.co`   | answered      |
+| `https://1rpc.io/base-sepolia`               | HTTP 400      |
+| `https://rpc.ankr.com/base_sepolia`          | HTTP 403      |
+| `https://base-sepolia.g.alchemy.com/v2/demo` | HTTP 429      |
+
+**Two traps.** `keyXy: {"path": "log-key.xy.b64"}` fails: that file is
+base64 _text_, and `path` inputs are read as raw bytes — pass its
+contents as `b64`. And the byte-field name is `b64` in both servers
+(`base64` is accepted here as an alias), so the shapes you learn from the
+verifier work here unchanged.
+
+`test/core/readme-example.test.ts` asserts the coordinates in this
+section against the recorded lane-A fixtures, so a fixture re-capture
+cannot silently invalidate the example.
+
 ## The seven tools
 
 | Tool                        | Provenance                           | What it does                                                                        | Supports                                    |
