@@ -111,10 +111,17 @@ export const SUPPORTS: Record<ToolName, Supports> = {
  *  different: `src/node/tools.ts`'s `verify_fetched_receipt` appends it
  *  directly, not `compose.ts`, when the caller named a log id and the
  *  receipt's own delegation certificate names a different one — the call
- *  still reads the caller's log; the mismatch is the finding. */
+ *  still reads the caller's log; the mismatch is the finding.
+ *  `genesis_root_reaches_direct_delegates_only` is appended by
+ *  `compose.ts` when a supplied `genesis` root reports
+ *  `delegation_invalid`: the offline walk resolves one delegation hop from
+ *  the forest root, so a receipt from a log further down the grant chain
+ *  cannot be resolved under that root — a limitation of the walk, stated
+ *  as such, never a property of the receipt. */
 export const COURIER_DIAGNOSTIC_CODES = [
   "receipt_fetched_from_operator",
   "root_read_from_chain",
   "root_read_from_chain_history",
   "receipt_log_id_mismatch",
+  "genesis_root_reaches_direct_delegates_only",
 ] as const;

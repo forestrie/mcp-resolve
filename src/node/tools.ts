@@ -29,6 +29,7 @@ import {
   classify,
   decodeChainBindingFromGenesis,
   decodeReceiptLogId,
+  formatContractLogIdAsUuid,
   grantLeafInputs,
   isPeakNotInKnownAccumulator,
   peakHeldIn,
@@ -74,19 +75,42 @@ export type ResolvedDeps = {
 
 /* ------------------------------ wire shapes ------------------------------ */
 
+/** The accepted shapes, named in every byte field's description and in the
+ *  validation error for a wrong shape — the SDK renders a plain
+ *  `z.union` failure as "Invalid input at <field>", which tells a caller
+ *  nothing about what was wanted. `b64` is the verifier's name; `base64`
+ *  is this package's original name and stays accepted (U2). */
+const BYTES_SHAPES =
+  "{b64: <standard base64>} (base64 is accepted as an alias), or {path: <a file the local server reads>}";
+
 const BytesInputSchema = z
-  .union([
-    z.object({ base64: z.string().min(1) }).describe("standard base64"),
-    z
-      .object({ path: z.string().min(1) })
-      .describe("filesystem path, read by the stdio adapter"),
-  ])
-  .describe("Bytes as base64, or a path the local server reads");
+  .union(
+    [
+      z.object({ b64: z.string().min(1) }).describe("standard base64"),
+      z
+        .object({ base64: z.string().min(1) })
+        .describe("standard base64 (alias of b64)"),
+      z
+        .object({ path: z.string().min(1) })
+        .describe("filesystem path, read by the stdio adapter"),
+    ],
+    { error: `expected bytes as ${BYTES_SHAPES}` },
+  )
+  .describe(`Bytes as ${BYTES_SHAPES}`);
+
+/** A byte field whose description names the accepted shapes as well as
+ *  what the bytes are — a field-level `.describe()` replaces the union's
+ *  own text in the advertised schema, so the shapes must be restated. */
+function bytesInput(what: string) {
+  return BytesInputSchema.describe(`${what} — ${BYTES_SHAPES}`);
+}
 
 const LogIdSchema = z
   .string()
   .min(1)
-  .describe("UUID (with dashes), or a 16/32-byte hex log id");
+  .describe(
+    "UUID (with dashes), or a 16/32-byte hex log id; sent to the operator in UUID form",
+  );
 
 const EntryIdSchema = z
   .string()
@@ -133,10 +157,10 @@ const HistoryInputSchema = z
  *  `GrantLeafInputError` mapping. */
 const ForReceiptInputSchema = z
   .object({
-    receipt: BytesInputSchema.describe("the receipt bytes"),
-    payload: BytesInputSchema.optional().describe(
+    receipt: bytesInput("the receipt bytes"),
+    payload: bytesInput(
       "the exact registered payload (payload verification), or the committed grant bytes when grant:true",
-    ),
+    ).optional(),
     entryId: EntryIdSchema.optional().describe(
       "required for payload verification; optional for a COSE grant, required for a raw grant payload",
     ),
@@ -162,35 +186,63 @@ const ForReceiptInputSchema = z
  *  alone takes `logId` optional, via `VerifyChainInputSchema` below: its
  *  caller may rely on the receipt's own
  *  delegation-certificate log id instead of naming one. */
+/** One object rather than a two-branch `z.union`: the SDK renders a union
+ *  failure as a bare "Invalid input at chain", discarding the per-branch
+ *  issue that would have named the field. As one object every field
+ *  validates in place (a missing `logId` is reported at `chain.logId`),
+ *  and the one rule a union expressed — a genesis document OR an explicit
+ *  address, never both, never neither — is a refinement with its own
+ *  message. The internal `ChainInput` union is rebuilt by
+ *  `chainFromWire` after validation. */
 function chainInputSchema<
   L extends typeof LogIdSchema | z.ZodOptional<typeof LogIdSchema>,
 >(logIdSchema: L) {
   return z
-    .union([
-      z.object({
-        genesis: BytesInputSchema.describe(
-          "a genesis document you hold; univocity and chainId are decoded from it",
+    .object({
+      genesis: bytesInput(
+        "a genesis document you hold; univocity and chainId are decoded from it (give this OR univocity)",
+      ).optional(),
+      univocity: AddressSchema.optional().describe(
+        "the univocity contract address, given explicitly (give this OR genesis)",
+      ),
+      chainId: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "with univocity only: checked against eth_chainId before any eth_call, if given",
         ),
-        rpcUrl: RpcUrlSchema.optional(),
-        logId: logIdSchema,
-        history: HistoryInputSchema.optional(),
-      }),
-      z.object({
-        rpcUrl: RpcUrlSchema.optional(),
-        univocity: AddressSchema,
-        logId: logIdSchema,
-        chainId: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            "checked against eth_chainId before any eth_call, if given",
-          ),
-        history: HistoryInputSchema.optional(),
-      }),
-    ])
+      rpcUrl: RpcUrlSchema.optional(),
+      logId: logIdSchema,
+      history: HistoryInputSchema.optional(),
+    })
+    .superRefine((chain, ctx) => {
+      if (chain.genesis === undefined && chain.univocity === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "chain needs the forest's chain binding: either genesis (bytes of a genesis document you hold) or univocity (the contract address, optionally with chainId)",
+        });
+      } else if (
+        chain.genesis !== undefined &&
+        chain.univocity !== undefined
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "chain takes either genesis (the binding is decoded from it) or univocity (given explicitly), not both",
+        });
+      } else if (chain.genesis !== undefined && chain.chainId !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["chainId"],
+          message:
+            "chainId goes with univocity; with genesis the chain id is decoded from the document",
+        });
+      }
+    })
     .describe(
-      "The forest's chain binding: from a genesis you hold, or given explicitly. Never defaulted, never taken from a fetched genesis, never read from the environment except rpcUrl.",
+      "The forest's chain binding: {genesis, logId, rpcUrl?} from a genesis you hold, or {univocity, chainId?, logId, rpcUrl?} given explicitly. Never defaulted, never taken from a fetched genesis, never read from the environment except rpcUrl.",
     );
 }
 
@@ -221,39 +273,81 @@ const receiptLocatorFieldsShape = {
   entryId: EntryIdSchema.optional(),
 };
 
-const TrustRootWireSchema = z.discriminatedUnion("root", [
-  z.object({ root: z.literal("genesis"), genesis: BytesInputSchema }),
-  z.object({
-    root: z.literal("known-log-key"),
-    keyXy: BytesInputSchema.describe("raw 64-byte P-256 x||y"),
-  }),
-  z.object({
-    root: z.literal("known-accumulator"),
-    accumulator: BytesInputSchema.describe(
-      "encodeKnownAccumulator snapshot bytes you hold",
-    ),
-    massif: BytesInputSchema.optional(),
-    consistencyProof: BytesInputSchema.optional(),
-  }),
-  z.object({
-    root: z.literal("checkpoint-chain"),
-    checkpoints: z.array(BytesInputSchema).min(1),
-    genesis: BytesInputSchema.optional(),
-    keyXy: BytesInputSchema.optional(),
-  }),
-]);
-
 /** Bytes you supply, or (known-accumulator only) a chain read in this call.
  *  Deliberately NOT admitting `{root:"genesis", fetch:…}` or any other
- *  fetched-genesis form. */
+ *  fetched-genesis form.
+ *
+ *  Discriminated on `root` so a failure is reported at the field that
+ *  failed (`trust.keyXy`, `trust.genesis`) rather than as a bare
+ *  "Invalid input at trust". The `known-accumulator` branch carries both
+ *  of its forms — `accumulator` bytes you hold, or `chain` for a read in
+ *  this call — as one object with a refinement, because two branches
+ *  sharing a discriminator value cannot be told apart by the
+ *  discriminator. `trustFromWire` rebuilds the internal `TrustInput`
+ *  union after validation. */
 const TrustInputSchema = z
-  .union([
-    TrustRootWireSchema,
-    z.object({
-      root: z.literal("known-accumulator"),
-      chain: VerifyChainInputSchema,
-    }),
-  ])
+  .discriminatedUnion(
+    "root",
+    [
+      z.object({
+        root: z.literal("genesis"),
+        genesis: bytesInput("the forest's genesis document you hold"),
+      }),
+      z.object({
+        root: z.literal("known-log-key"),
+        keyXy: bytesInput("raw 64-byte P-256 x||y of the log owner key"),
+      }),
+      z
+        .object({
+          root: z.literal("known-accumulator"),
+          accumulator: bytesInput(
+            "encodeKnownAccumulator snapshot bytes you hold (give this OR chain)",
+          ).optional(),
+          massif: bytesInput("with accumulator only").optional(),
+          consistencyProof: bytesInput("with accumulator only").optional(),
+          chain: VerifyChainInputSchema.optional().describe(
+            "read the accumulator from the chain in this call (give this OR accumulator)",
+          ),
+        })
+        .superRefine((trust, ctx) => {
+          if (trust.accumulator === undefined && trust.chain === undefined) {
+            ctx.addIssue({
+              code: "custom",
+              message:
+                "root known-accumulator needs either accumulator (snapshot bytes you hold) or chain (read the accumulator from the chain in this call)",
+            });
+          } else if (
+            trust.accumulator !== undefined &&
+            trust.chain !== undefined
+          ) {
+            ctx.addIssue({
+              code: "custom",
+              message:
+                "root known-accumulator takes either accumulator (bytes you hold) or chain (a read in this call), not both",
+            });
+          }
+        }),
+      z.object({
+        root: z.literal("checkpoint-chain"),
+        checkpoints: z
+          .array(BytesInputSchema)
+          .min(1)
+          .describe(
+            `retained .sth checkpoints in ascending order, each ${BYTES_SHAPES}`,
+          ),
+        genesis: bytesInput(
+          "roots the first link (give this or keyXy)",
+        ).optional(),
+        keyXy: bytesInput(
+          "roots the first link (give this or genesis)",
+        ).optional(),
+      }),
+    ],
+    {
+      error:
+        "trust.root must be one of genesis, known-log-key, known-accumulator, checkpoint-chain",
+    },
+  )
   .describe(
     "Which trust root to verify under: bytes you supply (genesis, keyXy, accumulator, checkpoints), or {root:'known-accumulator', chain:…} to read the accumulator from the chain in this call. Never a genesis fetched in this same call.",
   );
@@ -446,9 +540,9 @@ export const fetchCheckpointHistoryOutputShape = {
 export const verifyFetchedReceiptInputShape = {
   ...receiptLocatorFieldsShape,
   trust: TrustInputSchema,
-  payload: BytesInputSchema.optional().describe(
+  payload: bytesInput(
     "the exact registered payload (payload verification), or the committed grant bytes when grant:true",
-  ),
+  ).optional(),
   entryId: EntryIdSchema.optional().describe(
     "required for payload verification; optional for a COSE grant, required for a raw grant payload",
   ),
@@ -587,7 +681,12 @@ function classifiedProblemValue(classified: {
   problem?: unknown;
 }): Record<string, unknown> {
   return {
-    code: classified.status === 429 ? "rate_limited" : "http_error",
+    code:
+      classified.status === 429
+        ? "rate_limited"
+        : classified.status === 404
+          ? "not_found"
+          : "http_error",
     status: classified.status,
     detail: classified.detail,
     ...(classified.retryAfterMs !== undefined
@@ -707,9 +806,11 @@ function resolveReceiptLocator(
   };
 }
 
-/** One GET, classified. A 404 ("still writing") becomes a `pending`
- *  problem rather than the bytes; every other non-2xx is `classify`'s own
- *  `problem` kind. */
+/** One GET, classified. Every non-2xx is `classify`'s own `problem` kind;
+ *  a 404 is `not_found` carrying the operator's problem title (never
+ *  `pending` — the registration route's 303 is the only pending signal,
+ *  and a receipt URL the operator holds nothing at will not fill in by
+ *  waiting), with a line on what to check next. */
 async function fetchAndClassifyReceipt(
   locator: FetchReceiptInput,
   deps: ResolvedDeps,
@@ -725,20 +826,18 @@ async function fetchAndClassifyReceipt(
     raw.url,
   );
   if (classified.kind === "problem") {
-    return { kind: "problem", problem: classifiedProblemValue(classified) };
-  }
-  if (classified.kind === "pending") {
-    return {
-      kind: "problem",
-      problem: {
-        code: "pending",
-        location: classified.location,
-        ...(classified.retryAfterMs !== undefined
-          ? { retryAfterMs: classified.retryAfterMs }
-          : {}),
-        message: "the receipt is not written yet; retry later",
-      },
-    };
+    const problem = classifiedProblemValue(classified);
+    if (classified.status === 404) {
+      return {
+        kind: "problem",
+        problem: {
+          ...problem,
+          url: raw.url,
+          message: `${classified.detail} — the operator holds no receipt at ${raw.url}; check the massif height and entry id (query_registration returns the exact receipt URL), and that logId is the log the statement was registered on`,
+        },
+      };
+    }
+    return { kind: "problem", problem };
   }
   if (classified.kind !== "receipt") {
     throw new Error(
@@ -821,17 +920,45 @@ function tryContractLogId(logId: string): string | undefined {
   }
 }
 
-/** The low 16 bytes of a `toContractLogId` result, dashed: log ids are
- *  reported in lowercase UUID form. */
-function formatContractLogIdAsUuid(contractForm: string): string {
-  const hex32 = contractForm.slice(-32);
-  return [
-    hex32.slice(0, 8),
-    hex32.slice(8, 12),
-    hex32.slice(12, 16),
-    hex32.slice(16, 20),
-    hex32.slice(20, 32),
-  ].join("-");
+/** The validated wire form of the chain union (`chainInputSchema`): one
+ *  object, exactly one of `genesis`/`univocity` present. */
+type ChainWire = {
+  genesis?: BytesInput | undefined;
+  univocity?: string | undefined;
+  chainId?: number | undefined;
+  rpcUrl?: string | undefined;
+  logId?: string | undefined;
+  history?: HistoryInput | undefined;
+};
+
+/** Wire -> the internal two-branch union. The schema's refinement has
+ *  already guaranteed exactly one of `genesis`/`univocity`; a violation
+ *  here is a programming error, not an input error. Optional fields are
+ *  added only when present (`exactOptionalPropertyTypes`). */
+function verifyChainFromWire(wire: ChainWire): VerifyChainInput {
+  const common = {
+    ...(wire.rpcUrl !== undefined ? { rpcUrl: wire.rpcUrl } : {}),
+    ...(wire.logId !== undefined ? { logId: wire.logId } : {}),
+    ...(wire.history !== undefined ? { history: wire.history } : {}),
+  };
+  if (wire.genesis !== undefined) {
+    return { genesis: wire.genesis, ...common };
+  }
+  if (wire.univocity === undefined) {
+    throw new Error(
+      "unreachable: chain passed validation with neither genesis nor univocity",
+    );
+  }
+  return {
+    univocity: wire.univocity,
+    ...(wire.chainId !== undefined ? { chainId: wire.chainId } : {}),
+    ...common,
+  };
+}
+
+/** As `verifyChainFromWire`, for the tools whose schema requires `logId`. */
+function chainFromWire(wire: ChainWire & { logId: string }): ChainInput {
+  return verifyChainFromWire(wire) as ChainInput;
 }
 
 function resolveChainInput(
@@ -1503,6 +1630,56 @@ type TrustRootWireInput =
 type TrustInput =
   TrustRootWireInput | { root: "known-accumulator"; chain: VerifyChainInput };
 
+/** The validated wire form of `TrustInputSchema`: the `known-accumulator`
+ *  branch is one object carrying either `accumulator` or `chain` (the
+ *  schema's refinement guarantees exactly one). */
+type TrustWire =
+  | { root: "genesis"; genesis: BytesInput }
+  | { root: "known-log-key"; keyXy: BytesInput }
+  | {
+      root: "known-accumulator";
+      accumulator?: BytesInput | undefined;
+      massif?: BytesInput | undefined;
+      consistencyProof?: BytesInput | undefined;
+      chain?: ChainWire | undefined;
+    }
+  | {
+      root: "checkpoint-chain";
+      checkpoints: BytesInput[];
+      genesis?: BytesInput | undefined;
+      keyXy?: BytesInput | undefined;
+    };
+
+type VerifyFetchedWireArgs = FlatReceiptFields & {
+  trust: TrustWire;
+  payload?: BytesInput | undefined;
+  grant?: boolean | undefined;
+};
+
+/** Wire -> the internal `TrustInput` union the handler was written over. */
+function trustFromWire(wire: TrustWire): TrustInput {
+  if (wire.root !== "known-accumulator") return wire;
+  if (wire.chain !== undefined) {
+    return {
+      root: "known-accumulator",
+      chain: verifyChainFromWire(wire.chain),
+    };
+  }
+  if (wire.accumulator === undefined) {
+    throw new Error(
+      "unreachable: known-accumulator passed validation with neither accumulator nor chain",
+    );
+  }
+  return {
+    root: "known-accumulator",
+    accumulator: wire.accumulator,
+    ...(wire.massif !== undefined ? { massif: wire.massif } : {}),
+    ...(wire.consistencyProof !== undefined
+      ? { consistencyProof: wire.consistencyProof }
+      : {}),
+  };
+}
+
 /** Mirrors `@forestrie/mcp-verify`'s `resolveRoot`, over `base64`-named bytes. */
 function resolveSuppliedRoot(input: TrustRootWireInput): TrustRoot {
   switch (input.root) {
@@ -1916,24 +2093,30 @@ export function makeFetchGenesisTool(deps: ResolvedDeps) {
 
 export function makeFetchAccumulatorTool(deps: ResolvedDeps) {
   return (args: {
-    chain: ChainInput;
+    chain: ChainWire & { logId: string };
     forReceipt?: ForReceiptInput | undefined;
   }) =>
     guardHandler("fetch_accumulator", () =>
-      handleFetchAccumulator(args, deps),
+      handleFetchAccumulator(
+        { ...args, chain: chainFromWire(args.chain) },
+        deps,
+      ),
     );
 }
 
 export function makeFetchCheckpointHistoryTool(deps: ResolvedDeps) {
-  return (args: { chain: ChainInput }) =>
+  return (args: { chain: ChainWire & { logId: string } }) =>
     guardHandler("fetch_checkpoint_history", () =>
-      handleFetchCheckpointHistory(args, deps),
+      handleFetchCheckpointHistory({ chain: chainFromWire(args.chain) }, deps),
     );
 }
 
 export function makeVerifyFetchedReceiptTool(deps: ResolvedDeps) {
-  return (args: VerifyFetchedArgs) =>
+  return (args: VerifyFetchedWireArgs) =>
     guardHandler("verify_fetched_receipt", () =>
-      handleVerifyFetchedReceipt(args, deps),
+      handleVerifyFetchedReceipt(
+        { ...args, trust: trustFromWire(args.trust) },
+        deps,
+      ),
     );
 }

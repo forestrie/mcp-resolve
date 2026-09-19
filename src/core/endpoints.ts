@@ -33,6 +33,20 @@ function joinSegments(base: string, segments: readonly string[]): string {
   return [base, ...segments.map((s) => encodeURIComponent(s))].join("/");
 }
 
+/**
+ * The one log-id form the SCRAPI routes accept in a path: the lowercase,
+ * dashed UUID. The operator rejects a 64-hex contract-form id with HTTP 400
+ * "Invalid log-id in path", yet that is exactly the form a caller holds
+ * after decoding a genesis document, so every URL builder below normalises
+ * through here rather than passing the caller's string through verbatim.
+ * Accepts what `toContractLogId` accepts (UUID, 32-hex, 64-hex, `0x` or
+ * not, any case) and throws its `EndpointError` — naming the accepted
+ * forms — for anything else.
+ */
+export function toScrapiLogId(logId: string): string {
+  return formatContractLogIdAsUuid(toContractLogId(logId));
+}
+
 /** `GET {baseUrl}/.well-known/scitt-configuration`. */
 export function scittConfigurationUrl(baseUrl: string): string {
   return `${trimBaseUrl(baseUrl)}/.well-known/scitt-configuration`;
@@ -47,8 +61,8 @@ export function registrationStatusUrl(
 ): string {
   return joinSegments(trimBaseUrl(baseUrl), [
     "logs",
-    bootstrapLogId,
-    logId,
+    toScrapiLogId(bootstrapLogId),
+    toScrapiLogId(logId),
     "entries",
     contentHashHex,
   ]);
@@ -64,8 +78,8 @@ export function receiptUrl(
 ): string {
   return joinSegments(trimBaseUrl(baseUrl), [
     "logs",
-    bootstrapLogId,
-    logId,
+    toScrapiLogId(bootstrapLogId),
+    toScrapiLogId(logId),
     String(massifHeight),
     "entries",
     entryIdHex,
@@ -78,7 +92,7 @@ export function genesisUrl(baseUrl: string, logId: string): string {
   return joinSegments(trimBaseUrl(baseUrl), [
     "api",
     "forest",
-    logId,
+    toScrapiLogId(logId),
     "genesis",
   ]);
 }
@@ -103,6 +117,20 @@ export function toContractLogId(logId: string): string {
     );
   }
   return `0x${hex.padStart(64, "0")}`;
+}
+
+/** The low 16 bytes of a `toContractLogId` result, dashed: the lowercase
+ *  UUID form log ids are reported in (provenance) and sent in (SCRAPI
+ *  paths, via `toScrapiLogId`). */
+export function formatContractLogIdAsUuid(contractForm: string): string {
+  const hex32 = contractForm.slice(-32);
+  return [
+    hex32.slice(0, 8),
+    hex32.slice(8, 12),
+    hex32.slice(12, 16),
+    hex32.slice(16, 20),
+    hex32.slice(20, 32),
+  ].join("-");
 }
 
 /** `logState(bytes32)` calldata: selector ‖ the 32-byte contract log id. */
