@@ -4,7 +4,7 @@
   "mcpName": "dev.forestrie/resolve",
   "license": "MIT",
   "type": "module",
-  "description": "MCP server that fetches receipts, genesis documents and accumulator snapshots for @forestrie/mcp-verify to verify — every result says where its bytes came from",
+  "description": "Fetch a SCITT receipt, its genesis and on-chain accumulator for @forestrie/mcp-verify to verify",
   "keywords": [
     "mcp",
     "modelcontextprotocol",
@@ -13,7 +13,14 @@
     "receipt",
     "transparency-log",
     "forestrie",
-    "fetch"
+    "fetch",
+    "verify",
+    "verification",
+    "provenance",
+    "transparency",
+    "audit-log",
+    "split-view",
+    "resolve"
   ],
   "repository": {
     "type": "git",
