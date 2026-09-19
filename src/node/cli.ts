@@ -24,8 +24,16 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { PACKAGE_VERSION, VERIFIER_VERSION } from "../core/index.js";
 import { createServer } from "./server.js";
+import { TOOL_NAMES, TOOL_TITLES } from "./text.js";
 
-const HELP = `forestrie-mcp-resolve ${PACKAGE_VERSION}
+/** One line per tool, generated from the same list the server registers
+ *  from — never a hand-typed block, which is how a seventh tool went
+ *  missing from `--help` for a release. */
+const TOOLS_BLOCK = TOOL_NAMES.map(
+  (name) => `  ${name.padEnd(26)} ${TOOL_TITLES[name]}`,
+).join("\n");
+
+export const HELP = `forestrie-mcp-resolve ${PACKAGE_VERSION}
 
   MCP server that fetches receipts, genesis documents and accumulator
   snapshots for @forestrie/mcp-verify to verify. Every result says where
@@ -37,8 +45,7 @@ USAGE
   forestrie-mcp-resolve --version
 
 TOOLS
-  fetch_scitt_configuration  fetch_receipt         fetch_accumulator
-  query_registration         fetch_genesis         verify_fetched_receipt
+${TOOLS_BLOCK}
 
 ENVIRONMENT (optional; never a package default)
   FORESTRIE_BASE_URL   used when a call omits baseUrl
