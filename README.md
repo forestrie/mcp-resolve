@@ -60,13 +60,13 @@ endpoint, with no key and no account.
 | Coordinate       | Value                                                                           | Where it comes from                                              |
 | ---------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | base URL         | `https://api-a.forest-2.forestrie.dev`                                          | lane A above (an example, not a default)                         |
-| bootstrap log    | `67876864-3b46-67ae-dcb3-13cc81624aa5`                                          | the forest root; also decoded from the genesis document          |
-| publications log | `e8345800-a747-4e62-9409-61622b836f1f`                                          | the log the verifier registers releases on                       |
+| bootstrap log    | `e22c8d55-3f88-b2b5-f225-5d2c2441bcdd`                                          | the forest root; also decoded from the genesis document          |
+| publications log | `da6f297c-4a0c-4c9a-b2ae-e701e558721d`                                          | the log the verifier registers releases on                       |
 | content hash     | `sha256(fixtures/self/statement.cose)`                                          | the tarball; `fixtures/self/manifest.json` lists the same digest |
 | entry id         | `fixtures/self/entry-id.txt`                                                    | the tarball; `query_registration` returns it too                 |
 | massif height    | never typed                                                                     | inside the `receiptUrl` that `query_registration` returns        |
 | log owner key    | `fixtures/self/log-key.xy.b64` (base64 text)                                    | the tarball                                                      |
-| chain            | id 84532 (Base Sepolia), univocity `0x678768643b4667aedcb313cc81624aa560b7f0ca` | bound in the genesis document; `fetch_genesis` decodes it        |
+| chain            | id 84532 (Base Sepolia), univocity `0xe22c8d553f88b2b5f2255d2c2441bcdd0d50cd58` | bound in the genesis document; `fetch_genesis` decodes it        |
 
 To have the tarball at hand in an empty directory:
 
@@ -77,22 +77,22 @@ shasum -a 256 node_modules/@forestrie/mcp-verify/fixtures/self/statement.cose
 ```
 
 The sequence, with the arguments as JSON and the one-line result each
-call returned when run on 2026-09-19 against the published 0.4.1 bundle
-(its entry id is `a09f50a673030200000000000000000f`; yours is whatever
+call returned when run on 2026-09-22 against the published 0.5.0 bundle
+(its entry id is `a0caa672b7030b000000000000000001`; yours is whatever
 `entry-id.txt` says):
 
 1. `fetch_scitt_configuration {"baseUrl": "https://api-a.forest-2.forestrie.dev"}`
    → `fetched SCITT configuration (serviceId canopy-dev-1) from …/.well-known/scitt-configuration`
-2. `query_registration {"baseUrl": …, "bootstrapLogId": "67876864-3b46-67ae-dcb3-13cc81624aa5", "logId": "e8345800-a747-4e62-9409-61622b836f1f", "contentHash": "<sha256 of statement.cose>"}`
-   → `registration complete; receipt at https://api-a.forest-2.forestrie.dev/logs/67876864-…/e8345800-…/14/entries/a09f50a673030200000000000000000f/receipt`
+2. `query_registration {"baseUrl": …, "bootstrapLogId": "e22c8d55-3f88-b2b5-f225-5d2c2441bcdd", "logId": "da6f297c-4a0c-4c9a-b2ae-e701e558721d", "contentHash": "<sha256 of statement.cose>"}`
+   → `registration complete; receipt at https://api-a.forest-2.forestrie.dev/logs/e22c8d55-…/da6f297c-…/14/entries/a0caa672b7030b000000000000000001/receipt`
    — `status: "receipt-available"`, the `receiptUrl` (with the massif
    height, 14, inside it) and `entryId`.
 3. `fetch_receipt {"receiptUrl": "<from step 2>"}`
-   → `fetched receipt (404 B) from …/receipt` — `receipt.sha256` equals
+   → `fetched receipt (438 B) from …/receipt` — `receipt.sha256` equals
    the digest of the tarball's `receipt.cbor`; `receiptLogId` names the
    publications log.
-4. `fetch_genesis {"baseUrl": …, "logId": "67876864-3b46-67ae-dcb3-13cc81624aa5"}`
-   → `fetched genesis (160 B) from …/api/forest/67876864-…/genesis: univocity 0x678768643b4667aedcb313cc81624aa560b7f0ca on chain 84532`
+4. `fetch_genesis {"baseUrl": …, "logId": "e22c8d55-3f88-b2b5-f225-5d2c2441bcdd"}`
+   → `fetched genesis (160 B) from …/api/forest/e22c8d55-…/genesis: univocity 0xe22c8d553f88b2b5f2255d2c2441bcdd0d50cd58 on chain 84532`
    — byte-identical to the tarball's `genesis.cbor`. Keep it: the calls
    below pass it back as bytes, never fetched in the same call.
 5. `verify_fetched_receipt {"receiptUrl": …, "entryId": "<entry-id.txt>", "payload": {"path": "…/fixtures/self/statement.cose"}, "trust": {"root": "known-log-key", "keyXy": {"b64": "<contents of log-key.xy.b64>"}}}`
@@ -104,7 +104,7 @@ call returned when run on 2026-09-19 against the published 0.4.1 bundle
    log is a grandchild. The result carries
    `genesis_root_reaches_direct_delegates_only` saying exactly that.
    Verify this receipt under a key or an accumulator, as in 5 and 7.
-7. `verify_fetched_receipt {"receiptUrl": …, "entryId": …, "payload": …, "trust": {"root": "known-accumulator", "chain": {"genesis": {"path": "…/fixtures/self/genesis.cbor"}, "rpcUrl": "https://sepolia.base.org", "logId": "e8345800-a747-4e62-9409-61622b836f1f"}}}`
+7. `verify_fetched_receipt {"receiptUrl": …, "entryId": …, "payload": …, "trust": {"root": "known-accumulator", "chain": {"genesis": {"path": "…/fixtures/self/genesis.cbor"}, "rpcUrl": "https://sepolia.base.org", "logId": "da6f297c-4a0c-4c9a-b2ae-e701e558721d"}}}`
    → `verify: PASS · root=known-accumulator · sealing ok, split-view ok, append-authority not answered at this root, attribution ok`
    — `anchor.blockNumber`, `anchor.matchedPeak` and
    `provenance.root.from.rpcUrl` say which chain state answered. If the
@@ -122,7 +122,7 @@ endpoints below are third-party public services, listed only as examples
 of what answered unauthenticated when this example was written; use your
 own provider for anything beyond a first try.
 
-| Endpoint                                     | On 2026-09-19 |
+| Endpoint                                     | On 2026-09-22 |
 | -------------------------------------------- | ------------- |
 | `https://sepolia.base.org`                   | answered      |
 | `https://base-sepolia-rpc.publicnode.com`    | answered      |

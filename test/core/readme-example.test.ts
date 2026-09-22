@@ -14,8 +14,18 @@ import { decodeChainBindingFromGenesis } from "../../src/core/index.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(HERE, "..", "..");
-const LANE_A_DIR = path.join(REPO_ROOT, "test", "fixtures", "lane-a");
-const CHAIN_DIR = path.join(REPO_ROOT, "test", "fixtures", "chain");
+/** The recording of the run the README quotes: the re-genesised lane A
+ *  and mcp-verify 0.5.0's own registration (2026-09-22). */
+const LANE_A_DIR = path.join(REPO_ROOT, "test", "fixtures", "lane-a-0.5.0");
+const COORDS = JSON.parse(
+  readFileSync(path.join(LANE_A_DIR, "coordinates.json"), "utf8"),
+) as {
+  bootstrapLogId: string;
+  publicationsLogId: string;
+  chainId: number;
+  univocity: string;
+  massifHeight: number;
+};
 
 const readme = readFileSync(path.join(REPO_ROOT, "README.md"), "utf8");
 const section =
@@ -60,14 +70,12 @@ describe("README worked example", () => {
     const binding = decodeChainBindingFromGenesis(genesis);
     expect(section).toContain(`id ${binding.chainId} `);
     expect(section).toContain(binding.univocity);
-    const chain = JSON.parse(
-      readFileSync(path.join(CHAIN_DIR, "logState.46770471.json"), "utf8"),
-    ) as { chainId: string; univocity: string; logId: string };
-    expect(Number(chain.chainId)).toBe(binding.chainId);
-    expect(chain.univocity.toLowerCase()).toBe(
+    expect(COORDS.chainId).toBe(binding.chainId);
+    expect(COORDS.univocity.toLowerCase()).toBe(
       binding.univocity.toLowerCase(),
     );
-    expect(section).toContain(chain.logId);
+    expect(section).toContain(COORDS.publicationsLogId);
+    expect(section).toContain(COORDS.bootstrapLogId);
   });
 
   it("names the massif height the recorded receipt URL carries, and never asks the reader to type one", () => {
@@ -75,8 +83,8 @@ describe("README worked example", () => {
       readFileSync(path.join(LANE_A_DIR, "receipt-self.meta.json"), "utf8"),
     ) as { url: string };
     const height = meta.url.match(/\/(\d+)\/entries\//)?.[1];
-    expect(height).toBe("14");
-    expect(flat).toContain("massif height, 14, inside it");
+    expect(height).toBe(String(COORDS.massifHeight));
+    expect(flat).toContain(`massif height, ${COORDS.massifHeight}, inside it`);
     expect(flat).toMatch(/\| massif height\s+\| never typed/);
   });
 
