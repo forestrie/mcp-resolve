@@ -16,7 +16,7 @@ export const PACKAGE_VERSION = "0.2.0";
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-verify"] — the
  *  verifier this package composes with. Asserted by
  *  test/core/version.test.ts. */
-export const VERIFIER_VERSION = "0.4.1";
+export const VERIFIER_VERSION = "0.5.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/chain-rpc"] —
  *  the injectable-`fetchImpl` JSON-RPC helpers `src/net/chain.ts`'s
@@ -25,17 +25,17 @@ export const CHAIN_RPC_VERSION = "0.3.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/scrapi-client"].
  *  Asserted by test/core/version.test.ts. */
-export const SCRAPI_CLIENT_VERSION = "0.2.2";
+export const SCRAPI_CLIENT_VERSION = "0.2.3";
 
 /** Keep in sync with package.json#dependencies["@forestrie/receipt-verify"]
  *  (for encodeKnownAccumulator, the FOREST_GENESIS_LABEL_* constants,
  *  decodeChainBindingFromGenesis and decodeTrustRootDetailsFromGenesis).
  *  Asserted by test/core/version.test.ts. */
-export const RECEIPT_VERIFY_VERSION = "1.1.0";
+export const RECEIPT_VERIFY_VERSION = "2.0.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/encoding"].
  *  Asserted by test/core/version.test.ts. */
-export const ENCODING_VERSION = "0.7.0";
+export const ENCODING_VERSION = "0.8.0";
 
 /**
  * This package's identity as the courier that fetches for

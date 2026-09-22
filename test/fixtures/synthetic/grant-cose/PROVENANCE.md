@@ -58,3 +58,13 @@ payload byte-for-byte. Its signature bytes will differ on every run — ES256
 (`test/core/grant-leaf.test.ts`) compares those three fields and
 verifies the regenerated signature, rather than comparing the file
 byte-for-byte.
+
+## Regenerated 2026-09-22
+
+Re-run once against `@forestrie/mcp-verify` 0.5.0 and `@forestrie/encoding`
+0.8.0: the verifier regenerated its golden conformance grant for the signed
+checkpoint tree size (a fresh signing key, so `grantDataHex` moved), and the
+encoder now orders map keys length-first then bytewise, so the wrapper's
+unprotected header is `{-65537: idtimestamp, -65538: grant}`. The grant
+inside is again byte-identical to the verifier's frozen conformance grant;
+only the wrapper and signature are fabricated, as before.
