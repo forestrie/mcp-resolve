@@ -1,4 +1,8 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
+  encodeCborDeterministic,
   encodeProblemDetailsCbor,
   type ProblemDetail,
 } from "@forestrie/encoding";
@@ -6,6 +10,12 @@ import { describe, expect, it } from "vitest";
 import { classify } from "../../src/core/index.js";
 
 const BASE_URL = "https://api-a.forest-2.forestrie.dev";
+const LANE_A_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "fixtures",
+  "lane-a",
+);
 
 function textBody(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -101,14 +111,46 @@ describe("classify", () => {
     expect(result).toEqual({ kind: "receipt", bytes });
   });
 
-  it("receipt: 404 is pending (still writing)", () => {
+  it("receipt: 404 is a problem, never pending — the registration route's 303 is the only pending signal", () => {
     const receiptUrl = `${BASE_URL}/logs/boot/log-1/3/entries/abc/receipt`;
     const result = classify(
       "receipt",
       { status: 404, location: receiptUrl, body: new Uint8Array() },
       BASE_URL,
     );
-    expect(result).toEqual({ kind: "pending", location: receiptUrl });
+    expect(result).toEqual({
+      kind: "problem",
+      status: 404,
+      detail: "(empty body)",
+    });
+  });
+
+  it("receipt: the lane's real 404 (application/cbor, title only) is decoded and its title becomes the detail", () => {
+    const body = new Uint8Array(
+      readFileSync(`${LANE_A_DIR}/receipt-404.cbor`),
+    );
+    const meta = JSON.parse(
+      readFileSync(`${LANE_A_DIR}/receipt-404.meta.json`, "utf8"),
+    ) as { status: number; headers: Record<string, string>; url: string };
+    const result = classify(
+      "receipt",
+      {
+        status: meta.status,
+        contentType: meta.headers["content-type"] as string,
+        location: meta.url,
+        body,
+      },
+      BASE_URL,
+    );
+    expect(result.kind).toBe("problem");
+    if (result.kind !== "problem") throw new Error("unreachable");
+    expect(result.status).toBe(404);
+    expect(result.detail).toBe("Entry receipt not found (checkpoint missing)");
+    expect(result.problem).toEqual({
+      type: "about:blank",
+      title: "Entry receipt not found (checkpoint missing)",
+      status: 404,
+    });
   });
 
   it("genesis: 200 returns the bytes", () => {
@@ -176,6 +218,55 @@ describe("classify", () => {
       status: 429,
       detail: "quota exceeded",
     });
+  });
+
+  it("decodes a problem body served as plain application/cbor (the lanes' content-type mismatch)", () => {
+    const body = problemBody({
+      title: "Not Found",
+      status: 404,
+      detail: "Forest genesis not found for bootstrap log-id in path",
+    });
+    const result = classify(
+      "genesis",
+      { status: 404, contentType: "application/cbor", body },
+      BASE_URL,
+    );
+    expect(result.kind).toBe("problem");
+    if (result.kind !== "problem") throw new Error("unreachable");
+    expect(result.detail).toBe(
+      "Forest genesis not found for bootstrap log-id in path",
+    );
+    expect(result.problem?.title).toBe("Not Found");
+  });
+
+  it("tolerates the canopy router quirk: a non-URI `type` with no `detail` is the human message", () => {
+    const body = problemBody({
+      type: "The requested resource /logs/nope was not found",
+      title: "Not Found",
+      status: 404,
+    });
+    const result = classify(
+      "configuration",
+      { status: 404, contentType: "application/cbor", body },
+      BASE_URL,
+    );
+    expect(result.kind).toBe("problem");
+    if (result.kind !== "problem") throw new Error("unreachable");
+    expect(result.detail).toBe(
+      "The requested resource /logs/nope was not found",
+    );
+  });
+
+  it("a CBOR body on an error status that is not a problem document is previewed, not decoded", () => {
+    const body = encodeCborDeterministic(new Map([["hello", "world"]]));
+    const result = classify(
+      "genesis",
+      { status: 500, contentType: "application/cbor", body },
+      BASE_URL,
+    );
+    expect(result.kind).toBe("problem");
+    if (result.kind !== "problem") throw new Error("unreachable");
+    expect(result.problem).toBeUndefined();
   });
 
   it("falls back to a 200-char body preview when there is no problem body", () => {

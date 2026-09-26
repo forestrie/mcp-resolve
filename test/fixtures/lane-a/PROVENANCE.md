@@ -18,6 +18,7 @@ example lane, not a default. The publications log
 | status-self | `/logs/67876864-…/e8345800-…/entries/7c29bb57bae35044f722f4842c91a38b6fae51a5405a95caf9b27c9b894e2166` | 2026-09-13T14:22:52Z | 303 | — (empty) | none | — |
 | receipt-self | `/logs/67876864-…/e8345800-…/14/entries/a09a6337ee0009000000000000000008/receipt` | 2026-09-13T14:23:08Z | 200 | `application/scitt-receipt+cbor` | `receipt-self.cbor` (438 B) | `55e7edf2a65c39681cb01fc1d6b5b6bf9273b82bd741954be63c8d6f2ef85fbe` |
 | status-unknown | `/logs/67876864-…/e8345800-…/entries/0000…0000` (64 zero hex) | 2026-09-13T14:23:08Z | 303 | — (empty) | none | — |
+| receipt-404 | `/logs/67876864-…/e8345800-…/13/entries/a09a6337ee0009000000000000000008/receipt` (massif height 13, one below the real 14) | 2026-09-19T11:50:27Z | 404 | `application/cbor` | `receipt-404.cbor` (80 B) | `4170be41d9c901a05cf9d0d70e858f34744b755bb080c489d526aaae6863f567` |
 
 (`67876864-…` = `67876864-3b46-67ae-dcb3-13cc81624aa5`; `e8345800-…` =
 `e8345800-a747-4e62-9409-61622b836f1f`.)
@@ -70,3 +71,20 @@ Tests read them from here, never from the installed mcp-verify, whose
 These files are FROZEN. `manifest.json` carries the sha256 of every file here
 except itself. A new capture replaces them in a commit of its own; tests never
 fetch.
+
+## receipt-404 — captured 2026-09-19 (plan-2609-08 phase 3)
+
+A sixth exchange, recorded the same way six days after the first five:
+the receipt route with the massif height one below the real one. The lane
+answered **404** with an 80-byte CBOR problem document
+(`{type: "about:blank", title: "Entry receipt not found (checkpoint
+missing)", status: 404}`) served as `application/cbor` — not the
+`application/problem+cbor` canopy's own API doc specifies, and with the
+operator's message in `title` and no `detail`. It is the exchange
+`test/core/classify.test.ts` and `test/node/tools.test.ts` replay to
+assert that a receipt-route 404 is reported as `not_found` carrying that
+title, never as `pending` (the registration route's 303 is the only
+pending signal), and that a CBOR problem body is decoded whatever CBOR
+media type it arrives under. Cloudflare's `report-to` / `nel` headers are
+in `receipt-404.headers.txt` as received; `receipt-404.meta.json` carries
+the parsed header set.

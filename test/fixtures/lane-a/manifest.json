@@ -1,11 +1,14 @@
 {
   "capturedAt": "2026-09-13T14:23:08Z",
   "files": {
-    "PROVENANCE.md": "f008aed8008cec201e22b665cec1103881d2397f3ba699fea8eae0a64ce2ffb6",
+    "PROVENANCE.md": "15941c4adf54f76fc84d48cd03c83a3e6266eadd9f55e5f801afaebd8f792bf6",
     "genesis.cbor": "c6183184d805bf23652a265d7f533101eec5c97e1939dd90c7f142e6d502da68",
     "genesis.headers.txt": "a3128925b32fc6709d4273b56ded818bc56b9e5668da3a5179fabd665249124f",
     "genesis.meta.json": "d312d90ff80d96ae8b062b09878ac38eb06ca1e1b49950a4c34a382bba090383",
     "log-key.xy.b64": "b48749628f1b20c8bd822fc317a36da4709fafc92849658973aa5743baf811c7",
+    "receipt-404.cbor": "4170be41d9c901a05cf9d0d70e858f34744b755bb080c489d526aaae6863f567",
+    "receipt-404.headers.txt": "6a18189a7d307f4ad2d94a729e7dc07b19e9db80ce9ad98edbdb19d0c7f05ab9",
+    "receipt-404.meta.json": "00d060feef1e10c4bb5227e5ff3d01a15ab034bb0c3885075c9a3af83a021194",
     "receipt-self.cbor": "55e7edf2a65c39681cb01fc1d6b5b6bf9273b82bd741954be63c8d6f2ef85fbe",
     "receipt-self.headers.txt": "8f6cd41b36ae86c3874a7d25778fcd6f7db86ff0666fd15d3a91c1e150a6dff3",
     "receipt-self.meta.json": "ab7c07651b560fd303bd11de1219cb7d0823d7229e25f4c4d13fd09408dac97b",

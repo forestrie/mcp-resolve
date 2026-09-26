@@ -39,6 +39,8 @@ export {
   genesisUrl,
   LOG_STATE_SELECTOR,
   toContractLogId,
+  toScrapiLogId,
+  formatContractLogIdAsUuid,
   logStateCalldata,
   normalizeAddress,
 } from "./endpoints.js";

@@ -187,6 +187,24 @@ It appends diagnostics of its own:
   names a different log from the one the call named: _the receipt's
   delegation certificate names log <cert>, the call named <caller>_. The
   call proceeds under the caller's log.
+- `genesis_root_reaches_direct_delegates_only` — when a supplied `genesis`
+  root fails at `delegation_invalid`. Verbatim:
+
+  > the genesis root's offline walk resolves one delegation hop from the
+  > forest root; this receipt's log is not a direct delegate, so its
+  > certificate could not be resolved under that root — a limitation of
+  > the walk, not a finding about the receipt; verify it under
+  > known-log-key (the log owner's key) or known-accumulator (a chain
+  > read) instead
+
+  The verifier's `genesis` root vouches for the forest root log and
+  resolves one delegation hop from it. A receipt from a grandchild log —
+  the verifier's own publications log is one, which is why its own
+  `verify_self` defaults to `known-log-key` — reports `delegation_invalid`
+  under that root whatever its contents. The same receipt verifies under
+  `known-log-key` with the log owner's key held out of band, or under
+  `known-accumulator` with a chain read, and the diagnostic says so rather
+  than leaving `delegation_invalid` to read as tampering.
 
 The text summary is the verifier's own summary line, prefixed with where
 the bytes came from. `not_answered_by_this_root` is a real answer and

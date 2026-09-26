@@ -65,12 +65,28 @@ const ROOT_READ_FROM_CHAIN_HISTORY: CourierDiagnostic = {
     "the accumulator was selected from published checkpoint history in this call, at the caller's RPC URL",
 };
 
+/** Fixed wording, quoted in docs/what-fetching-proves.md. Appended when a
+ *  supplied `genesis` root fails at `delegation_invalid`. The verifier's
+ *  own offline walk under that root resolves a single delegation hop from
+ *  the forest root; a receipt from a grandchild log (the verifier's own
+ *  publications log is one) cannot be resolved that way, whatever the
+ *  receipt says. Worded as the walk's limitation, never as a finding
+ *  about the receipt — the same receipt verifies under `known-log-key`
+ *  or `known-accumulator`. */
+const GENESIS_ROOT_REACHES_DIRECT_DELEGATES_ONLY: CourierDiagnostic = {
+  code: "genesis_root_reaches_direct_delegates_only",
+  message:
+    "the genesis root's offline walk resolves one delegation hop from the forest root; this receipt's log is not a direct delegate, so its certificate could not be resolved under that root — a limitation of the walk, not a finding about the receipt; verify it under known-log-key (the log owner's key) or known-accumulator (a chain read) instead",
+};
+
 /**
  * Run the verifier's `verifyReceipt` / `verifyGrantReceipt` and return its
  * result unaltered except for `diagnostics` (the verifier's, followed by
  * `receipt_fetched_from_operator` always, `root_read_from_chain` for
- * either chain-read root, and `root_read_from_chain_history` additionally
- * when the root was selected from history) and `courier` (this package's
+ * either chain-read root, `root_read_from_chain_history` additionally
+ * when the root was selected from history, and
+ * `genesis_root_reaches_direct_delegates_only` when a supplied `genesis`
+ * root failed at `delegation_invalid`) and `courier` (this package's
  * identity, alongside the verifier's).
  */
 export async function verifyFetched(
@@ -94,12 +110,19 @@ export async function verifyFetched(
   const isChainRead =
     input.rootProvenance === "chain-read" ||
     input.rootProvenance === "chain-read-history";
+  const genesisWalkStopped =
+    input.trust.root === "genesis" &&
+    result.ok === false &&
+    result.reason === "delegation_invalid";
   const diagnostics: FetchedVerifyResult["diagnostics"] = [
     ...result.diagnostics,
     RECEIPT_FETCHED_FROM_OPERATOR,
     ...(isChainRead ? [ROOT_READ_FROM_CHAIN] : []),
     ...(input.rootProvenance === "chain-read-history"
       ? [ROOT_READ_FROM_CHAIN_HISTORY]
+      : []),
+    ...(genesisWalkStopped
+      ? [GENESIS_ROOT_REACHES_DIRECT_DELEGATES_ONLY]
       : []),
   ];
 

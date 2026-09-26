@@ -645,6 +645,95 @@ describe("query_registration", () => {
 /* ---------------------------------- fetch_receipt -------------------------- */
 
 describe("fetch_receipt", () => {
+  it("a 404 (the lane's real one, a wrong massif height) is not_found carrying the operator's title, never pending, one request", async () => {
+    const laneA = await createLaneAReplay();
+    const result = await withClient(
+      { fetchImpl: laneA.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_receipt",
+          arguments: {
+            baseUrl: BASE_URL,
+            bootstrapLogId: BOOTSTRAP_LOG_ID,
+            logId: PUBLICATIONS_LOG_ID,
+            massifHeight: MASSIF_HEIGHT - 1,
+            entryId: ENTRY_ID,
+          },
+        }),
+    );
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: {
+        code: string;
+        status: number;
+        detail: string;
+        url: string;
+        message: string;
+        problemDetails: { title: string };
+      };
+      supports: Supports;
+    };
+    expect(structured.problem.code).toBe("not_found");
+    expect(structured.problem.status).toBe(404);
+    expect(structured.problem.detail).toBe(
+      "Entry receipt not found (checkpoint missing)",
+    );
+    expect(structured.problem.problemDetails.title).toBe(
+      "Entry receipt not found (checkpoint missing)",
+    );
+    expect(structured.problem.url).toBe(laneA.urls["receipt-404"]);
+    expect(structured.supports).toEqual(SUPPORTS.fetch_receipt);
+    const text = (result.content as { text: string }[])[0]?.text ?? "";
+    expect(text.startsWith("problem (not_found): ")).toBe(true);
+    expect(text).toContain("Entry receipt not found (checkpoint missing)");
+    expect(text).toContain("check the massif height and entry id");
+    expect(text).not.toContain("pending");
+    expect(laneA.calls).toHaveLength(1);
+  });
+
+  it("a contract-form (64-hex) log id is sent to the operator in UUID form", async () => {
+    const laneA = await createLaneAReplay();
+    const contractForm = `0x${"0".repeat(32)}e8345800a7474e62940961622b836f1f`;
+    const result = await withClient(
+      { fetchImpl: laneA.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "query_registration",
+          arguments: {
+            baseUrl: BASE_URL,
+            bootstrapLogId: BOOTSTRAP_LOG_ID,
+            logId: contractForm,
+            contentHash: SELF_CONTENT_HASH,
+          },
+        }),
+    );
+    expect(result.isError).toBe(false);
+    expect(laneA.calls[0]?.url).toBe(laneA.urls["status-self"]);
+    const structured = result.structuredContent as { status: string };
+    expect(structured.status).toBe("receipt-available");
+  });
+
+  it("a log id in neither UUID nor hex form is invalid_input naming the accepted forms, zero requests", async () => {
+    const laneA = await createLaneAReplay();
+    const result = await withClient(
+      { fetchImpl: laneA.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "fetch_genesis",
+          arguments: { baseUrl: BASE_URL, logId: "publications" },
+        }),
+    );
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("invalid_input");
+    expect(structured.problem.message).toContain(
+      "must be a UUID or 16/32-byte hex id",
+    );
+    expect(laneA.calls).toHaveLength(0);
+  });
+
   it("fetches by receiptUrl: sha256, byteLength, decoded inclusion mmr index 8, one request", async () => {
     const laneA = await createLaneAReplay();
     const result = await withClient(
@@ -1337,6 +1426,247 @@ type VerifyStructured = FetchedVerifyResult & {
 };
 
 describe("verify_fetched_receipt", () => {
+  it("accepts b64 as well as base64 for every byte field, with the same PASS", async () => {
+    const laneA = await createLaneAReplay();
+    const result = await withClient(
+      { fetchImpl: laneA.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "verify_fetched_receipt",
+          arguments: {
+            receiptUrl: laneA.urls["receipt-self"],
+            entryId: ENTRY_ID,
+            payload: { b64: base64OfFile(STATEMENT_COSE_PATH) },
+            trust: {
+              root: "known-log-key",
+              keyXy: { b64: utf8OfFile(LOG_KEY_PATH) },
+            },
+          },
+        }),
+    );
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as VerifyStructured;
+    expect(structured.ok).toBe(true);
+    expect(structured.root).toBe("known-log-key");
+  });
+
+  it("a malformed b64 names the field and the key it was given under", async () => {
+    const laneA = await createLaneAReplay();
+    const result = await withClient(
+      { fetchImpl: laneA.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "verify_fetched_receipt",
+          arguments: {
+            receiptUrl: laneA.urls["receipt-self"],
+            entryId: ENTRY_ID,
+            payload: { b64: "!!!! not base64 !!!!" },
+            trust: {
+              root: "known-log-key",
+              keyXy: { base64: utf8OfFile(LOG_KEY_PATH) },
+            },
+          },
+        }),
+    );
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; message: string };
+    };
+    expect(structured.problem.code).toBe("invalid_input");
+    expect(structured.problem.message).toContain(
+      "payload.b64 is not valid base64",
+    );
+  });
+
+  describe("a wrong shape is refused at the field, naming the accepted shapes", () => {
+    const cases: {
+      label: string;
+      name: ToolName;
+      args: unknown;
+      expect: string[];
+    }[] = [
+      {
+        label: "keyXy with an unknown key names trust.keyXy and the shapes",
+        name: "verify_fetched_receipt",
+        args: {
+          receiptUrl: "https://example.com/r",
+          entryId: ENTRY_ID,
+          payload: { base64: "AAAA" },
+          trust: { root: "known-log-key", keyXy: { xx: "AAAA" } },
+        },
+        expect: ["at trust.keyXy", "{b64: <standard base64>}", "{path:"],
+      },
+      {
+        label: "an unknown root names the four roots",
+        name: "verify_fetched_receipt",
+        args: {
+          receiptUrl: "https://example.com/r",
+          entryId: ENTRY_ID,
+          payload: { base64: "AAAA" },
+          trust: { root: "nope" },
+        },
+        expect: [
+          "trust.root must be one of genesis, known-log-key, known-accumulator, checkpoint-chain",
+        ],
+      },
+      {
+        label: "root genesis with no genesis bytes names trust.genesis",
+        name: "verify_fetched_receipt",
+        args: {
+          receiptUrl: "https://example.com/r",
+          entryId: ENTRY_ID,
+          payload: { base64: "AAAA" },
+          trust: { root: "genesis", fetch: true },
+        },
+        expect: ["at trust.genesis", "{b64: <standard base64>}"],
+      },
+      {
+        label:
+          "root known-accumulator with neither accumulator nor chain says which to give",
+        name: "verify_fetched_receipt",
+        args: {
+          receiptUrl: "https://example.com/r",
+          entryId: ENTRY_ID,
+          payload: { base64: "AAAA" },
+          trust: { root: "known-accumulator" },
+        },
+        expect: [
+          "root known-accumulator needs either accumulator (snapshot bytes you hold) or chain",
+        ],
+      },
+      {
+        label: "chain with neither genesis nor univocity names both",
+        name: "fetch_accumulator",
+        args: { chain: { rpcUrl: RPC_URL, logId: PUBLICATIONS_LOG_ID } },
+        expect: [
+          "chain needs the forest's chain binding: either genesis",
+          "or univocity",
+          "at chain",
+        ],
+      },
+      {
+        label:
+          "chain with a genesis and a chainId says chainId goes with univocity",
+        name: "fetch_checkpoint_history",
+        args: {
+          chain: {
+            rpcUrl: RPC_URL,
+            genesis: { b64: "AAAA" },
+            chainId: CHAIN_ID,
+            logId: PUBLICATIONS_LOG_ID,
+          },
+        },
+        expect: ["chainId goes with univocity", "at chain.chainId"],
+      },
+      {
+        label: "chain with no logId names chain.logId",
+        name: "fetch_accumulator",
+        args: { chain: { rpcUrl: RPC_URL, univocity: UNIVOCITY } },
+        expect: ["at chain.logId"],
+      },
+    ];
+
+    it.each(cases)("$label", async (c) => {
+      const laneA = await createLaneAReplay();
+      const result = await withClient(
+        { fetchImpl: laneA.fetch, env: {} },
+        (client) =>
+          client.callTool({
+            name: c.name,
+            arguments: c.args as Record<string, unknown>,
+          }),
+      );
+      expect(result.isError).toBe(true);
+      const text = (result.content as { text: string }[])[0]?.text ?? "";
+      for (const fragment of c.expect) expect(text).toContain(fragment);
+      expect(text).not.toMatch(/Invalid input at (trust|chain)$/m);
+      expect(laneA.calls).toHaveLength(0);
+    });
+  });
+
+  it("a 404 on the receipt step is not_found carrying the operator's title, never pending, zero verification", async () => {
+    const laneA = await createLaneAReplay();
+    const result = await withClient(
+      { fetchImpl: laneA.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "verify_fetched_receipt",
+          arguments: {
+            baseUrl: BASE_URL,
+            bootstrapLogId: BOOTSTRAP_LOG_ID,
+            logId: PUBLICATIONS_LOG_ID,
+            massifHeight: MASSIF_HEIGHT - 1,
+            entryId: ENTRY_ID,
+            payload: { b64: base64OfFile(STATEMENT_COSE_PATH) },
+            trust: {
+              root: "known-log-key",
+              keyXy: { b64: utf8OfFile(LOG_KEY_PATH) },
+            },
+          },
+        }),
+    );
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as {
+      problem: { code: string; detail: string };
+      ok?: boolean;
+    };
+    expect(structured.problem.code).toBe("not_found");
+    expect(structured.problem.detail).toBe(
+      "Entry receipt not found (checkpoint missing)",
+    );
+    expect(structured.ok).toBeUndefined();
+    expect(laneA.calls).toHaveLength(1);
+  });
+
+  it("genesis, supplied, for a grandchild-log receipt: delegation_invalid, plus genesis_root_reaches_direct_delegates_only with its exact message", async () => {
+    const laneA = await createLaneAReplay();
+    const result = await withClient(
+      { fetchImpl: laneA.fetch, env: {} },
+      (client) =>
+        client.callTool({
+          name: "verify_fetched_receipt",
+          arguments: {
+            receiptUrl: laneA.urls["receipt-self"],
+            entryId: ENTRY_ID,
+            payload: { b64: base64OfFile(STATEMENT_COSE_PATH) },
+            trust: { root: "genesis", genesis: { path: LANE_A_GENESIS_PATH } },
+          },
+        }),
+    );
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as VerifyStructured;
+    expect(structured.ok).toBe(false);
+    expect(structured.root).toBe("genesis");
+    expect(structured.stage).toBe("signature");
+    expect(structured.reason).toBe("delegation_invalid");
+    const courierDiagnostics = structured.diagnostics.filter((d) =>
+      (COURIER_DIAGNOSTIC_CODES as readonly string[]).includes(d.code),
+    );
+    expect(courierDiagnostics.map((d) => d.code)).toEqual([
+      "receipt_fetched_from_operator",
+      "genesis_root_reaches_direct_delegates_only",
+    ]);
+    expect(courierDiagnostics[1]?.message).toBe(
+      "the genesis root's offline walk resolves one delegation hop from the forest root; this receipt's log is not a direct delegate, so its certificate could not be resolved under that root — a limitation of the walk, not a finding about the receipt; verify it under known-log-key (the log owner's key) or known-accumulator (a chain read) instead",
+    );
+    // The verifier's own answers are untouched: the diagnostic is appended,
+    // never substituted.
+    const direct = await verifyReceipt({
+      receipt: new Uint8Array(readFileSync(LANE_A_RECEIPT_PATH)),
+      payload: new Uint8Array(readFileSync(STATEMENT_COSE_PATH)),
+      entryId: ENTRY_ID,
+      trust: {
+        root: "genesis",
+        genesis: new Uint8Array(readFileSync(LANE_A_GENESIS_PATH)),
+      },
+    });
+    expect(direct.reason).toBe("delegation_invalid");
+    expect(structured.stages).toEqual(direct.stages);
+    expect(stripCourierDiagnostics(structured.diagnostics)).toEqual(
+      direct.diagnostics,
+    );
+  });
+
   it("known-log-key, supplied: verifier answers pass through unaltered, exactly one courier diagnostic, no root_read_from_chain", async () => {
     const laneA = await createLaneAReplay();
     const result = await withClient(

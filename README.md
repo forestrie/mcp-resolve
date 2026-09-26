@@ -98,6 +98,14 @@ documentation:
   `verify_fetched_receipt` take them from a genesis you hold, or
   explicitly, never from a default, never from a genesis fetched inside the
   call, and never from an environment variable.
+- **A `genesis` root reaches direct delegates only, and the result says
+  so.** The verifier's offline walk under a supplied genesis resolves one
+  delegation hop from the forest root. A receipt from a log further down
+  the grant chain — the verifier's own publications log is a grandchild —
+  fails under that root with `delegation_invalid`, and
+  `verify_fetched_receipt` appends `genesis_root_reaches_direct_delegates_only`
+  to say that this is the walk's limit, not a finding about the receipt.
+  Verify such a receipt under `known-log-key` or `known-accumulator`.
 - **Buried peaks are answered from published history, under the same
   root.** When later growth has folded a receipt's peak into a bigger one,
   the chain path looks back through published checkpoints, within the block

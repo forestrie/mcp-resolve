@@ -69,6 +69,7 @@ const LANE_A_BODY_FILES: Record<string, string | undefined> = {
   "status-self": undefined,
   "receipt-self": "receipt-self.cbor",
   "status-unknown": undefined,
+  "receipt-404": "receipt-404.cbor",
 };
 
 export type LaneAReplay = {

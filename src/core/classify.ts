@@ -16,10 +16,9 @@ import {
 export type ClassifyRoute =
   "configuration" | "registration" | "receipt" | "genesis";
 
-/** The parts of an HTTP response `classify` needs. For a `receipt` route's
- *  404 ("still writing" — there is no Location header for a 404), the
- *  caller passes the receipt URL it requested as `location` so the
- *  resulting `pending` always carries a URL to retry. */
+/** The parts of an HTTP response `classify` needs. `location` is the
+ *  `Location` header where one was sent (a 303); the receipt route's
+ *  caller also passes the URL it requested, so a 404 there can name it. */
 export type ClassifyView = {
   status: number;
   contentType?: string;
@@ -55,9 +54,48 @@ function bodyPreview(body: Uint8Array): string {
   return new TextDecoder().decode(body.slice(0, 200));
 }
 
-function isProblemCbor(contentType: string | undefined): boolean {
+/** Any CBOR media type — `application/problem+cbor` (the spec'd type,
+ *  what canopy's own API doc says it serves) or plain `application/cbor`
+ *  (what the lanes actually serve their problem documents as today, and a
+ *  content-type mismatch this decoder tolerates rather than handing the
+ *  caller undecoded bytes). Only consulted on a non-2xx, so a receipt or a
+ *  genesis is never mistaken for a problem document. */
+function isCborMediaType(contentType: string | undefined): boolean {
   if (contentType === undefined) return false;
-  return /^application\/problem\+cbor(?:\s*;|$)/i.test(contentType.trim());
+  return /^application\/(?:[\w.-]+\+)?cbor(?:\s*;|$)/i.test(
+    contentType.trim(),
+  );
+}
+
+/** Does a decoded CBOR map look like an RFC 9457 / 9290 problem document?
+ *  `title` or `status` is enough: a random CBOR map on an error status is
+ *  not one. */
+function isProblemShape(problem: ProblemDetails | undefined): boolean {
+  return (
+    problem !== undefined &&
+    (typeof problem.title === "string" || typeof problem.status === "number")
+  );
+}
+
+/** The human-readable line of a problem document, tolerating the canopy
+ *  router quirk: its catch-all 404s put the human message in `type` (where
+ *  a URI belongs) and send no `detail`. A `type` that is not a URI is that
+ *  message; `about:blank` and anything with a scheme is not. */
+function problemMessage(problem: ProblemDetails): string | undefined {
+  if (typeof problem.detail === "string" && problem.detail.length > 0) {
+    return problem.detail;
+  }
+  if (
+    typeof problem.type === "string" &&
+    problem.type.length > 0 &&
+    !/^[a-z][a-z0-9+.-]*:/i.test(problem.type)
+  ) {
+    return problem.type;
+  }
+  if (typeof problem.title === "string" && problem.title.length > 0) {
+    return problem.title;
+  }
+  return undefined;
 }
 
 function pendingResult(
@@ -76,10 +114,14 @@ function problemResult(
   fallbackDetail?: string,
 ): Classified {
   const retryAfterMs = parseRetryAfterMs(view.retryAfter);
-  const problem = isProblemCbor(view.contentType)
+  const decoded = isCborMediaType(view.contentType)
     ? decodeProblemDetailsBytes(view.body)
     : undefined;
-  const detail = problem?.detail ?? fallbackDetail ?? bodyPreview(view.body);
+  const problem = isProblemShape(decoded) ? decoded : undefined;
+  const detail =
+    (problem !== undefined ? problemMessage(problem) : undefined) ??
+    fallbackDetail ??
+    bodyPreview(view.body);
   return {
     kind: "problem",
     status: view.status,
@@ -138,12 +180,12 @@ export function classify(
     if (view.status === 200) {
       return { kind: "receipt", bytes: view.body };
     }
-    if (view.status === 404) {
-      return pendingResult(
-        view.location ?? "",
-        parseRetryAfterMs(view.retryAfter),
-      );
-    }
+    // A 404 here is NOT "still sequencing": the registration route's 303
+    // is the only pending signal. The operator answers 404 with a problem
+    // document ("Entry receipt not found (checkpoint missing)", "(massif
+    // height mismatch)", …) for a receipt URL it holds nothing at, and
+    // `@forestrie/scrapi-client` classifies the same route's 404 as
+    // not_found. Reported as a problem, carrying the operator's title.
     return problemResult(view);
   }
 
