@@ -10,7 +10,12 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PACKAGE_VERSION } from "../core/index.js";
-import { INSTRUCTIONS, TOOL_DESCRIPTIONS, TOOL_TITLES } from "./text.js";
+import {
+  INSTRUCTIONS,
+  TOOL_DESCRIPTIONS,
+  TOOL_NAMES,
+  TOOL_TITLES,
+} from "./text.js";
 import {
   fetchAccumulatorInputShape,
   fetchAccumulatorOutputShape,
@@ -76,8 +81,11 @@ export function createServer(deps?: Deps): McpServer {
     { instructions: INSTRUCTIONS },
   );
 
+  // One registerTool per name in TOOL_NAMES, in that order; the smoke test
+  // asserts tools/list equals TOOL_NAMES and help.test.ts asserts --help
+  // prints the same list.
   server.registerTool(
-    "fetch_scitt_configuration",
+    TOOL_NAMES[0],
     {
       title: TOOL_TITLES.fetch_scitt_configuration,
       description: TOOL_DESCRIPTIONS.fetch_scitt_configuration,
@@ -89,7 +97,7 @@ export function createServer(deps?: Deps): McpServer {
   );
 
   server.registerTool(
-    "query_registration",
+    TOOL_NAMES[1],
     {
       title: TOOL_TITLES.query_registration,
       description: TOOL_DESCRIPTIONS.query_registration,
@@ -101,7 +109,7 @@ export function createServer(deps?: Deps): McpServer {
   );
 
   server.registerTool(
-    "fetch_receipt",
+    TOOL_NAMES[2],
     {
       title: TOOL_TITLES.fetch_receipt,
       description: TOOL_DESCRIPTIONS.fetch_receipt,
@@ -113,7 +121,7 @@ export function createServer(deps?: Deps): McpServer {
   );
 
   server.registerTool(
-    "fetch_genesis",
+    TOOL_NAMES[3],
     {
       title: TOOL_TITLES.fetch_genesis,
       description: TOOL_DESCRIPTIONS.fetch_genesis,
@@ -125,7 +133,7 @@ export function createServer(deps?: Deps): McpServer {
   );
 
   server.registerTool(
-    "fetch_accumulator",
+    TOOL_NAMES[4],
     {
       title: TOOL_TITLES.fetch_accumulator,
       description: TOOL_DESCRIPTIONS.fetch_accumulator,
@@ -137,7 +145,7 @@ export function createServer(deps?: Deps): McpServer {
   );
 
   server.registerTool(
-    "fetch_checkpoint_history",
+    TOOL_NAMES[5],
     {
       title: TOOL_TITLES.fetch_checkpoint_history,
       description: TOOL_DESCRIPTIONS.fetch_checkpoint_history,
@@ -149,7 +157,7 @@ export function createServer(deps?: Deps): McpServer {
   );
 
   server.registerTool(
-    "verify_fetched_receipt",
+    TOOL_NAMES[6],
     {
       title: TOOL_TITLES.verify_fetched_receipt,
       description: TOOL_DESCRIPTIONS.verify_fetched_receipt,

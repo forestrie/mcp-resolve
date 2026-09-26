@@ -20,6 +20,20 @@ The univocity contract keeps only a log's latest state. A receipt's inclusion pr
 
 Requests. Each call makes one request per URL and never polls: query_registration returns pending or the receipt location, and you decide whether to call it again. An HTTP 429 comes back as a structured problem with status 429 and retryAfterMs when the server said so, not as an error. Bytes are returned base64-encoded, and a receipt also comes decoded so you can read what you fetched without a second call.`;
 
+/** The seven tool names, in registration order — the one list `server.ts`
+ *  registers from and `cli.ts`'s `--help` prints, so the two cannot drift
+ *  (they did: `--help` listed six for a release). `test/node/help.test.ts`
+ *  asserts `--help` names exactly what `tools/list` returns. */
+export const TOOL_NAMES = [
+  "fetch_scitt_configuration",
+  "query_registration",
+  "fetch_receipt",
+  "fetch_genesis",
+  "fetch_accumulator",
+  "fetch_checkpoint_history",
+  "verify_fetched_receipt",
+] as const satisfies readonly ToolName[];
+
 export const TOOL_TITLES: Record<ToolName, string> = {
   fetch_scitt_configuration: "Fetch SCITT configuration",
   query_registration: "Query registration status",
