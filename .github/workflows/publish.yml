@@ -95,6 +95,15 @@ on:
           (see the header comment).
         type: boolean
         default: false
+      registry_only:
+        description: >-
+          Recovery: list the version already on npm with the MCP registry and
+          do nothing else. For when `mcp-publisher publish` failed after a
+          successful `npm publish` (npm processes a publish asynchronously and
+          can serve the version minutes later). Runs from server.json on the
+          ref dispatched; nothing is built or published to npm.
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -129,6 +138,7 @@ jobs:
           cache: pnpm
 
       - name: Upgrade npm for trusted publishing
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.registry_only) }}
         # Pinned to an exact version (not a floating `npm@11`) so the release
         # path is reproducible and cannot pick up a brand-new client at
         # release time. Trusted publishing needs npm >= 11.5.1; npm@12
@@ -138,6 +148,7 @@ jobs:
           npm --version
 
       - name: Assert publish version discipline
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.registry_only) }}
         # Tag builds: the tag must name exactly the package.json version.
         # Dispatch (recovery) builds: the version must not already be on the
         # registry — UNLESS this is a `rehearsal` dispatch, which never
@@ -151,15 +162,18 @@ jobs:
           REHEARSAL: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearsal }}
 
       - name: Install dependencies
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.registry_only) }}
         run: pnpm install --frozen-lockfile
 
       - name: Test
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.registry_only) }}
         # Chains check:browser-safe && check:encoding-single-copy &&
         # check:server-json before vitest. This is what makes all three
         # gates release gates, not advisory.
         run: pnpm test
 
       - name: Build
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.registry_only) }}
         run: pnpm build
 
       # No self-registration step here: see the header comment. The
@@ -198,6 +212,7 @@ jobs:
           chmod +x ./mcp-publisher
 
       - name: mcp-publisher validate
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.registry_only) }}
         # Validates server.json before `npm publish` runs below, so a
         # rejection here stops the release instead of following it — the
         # v0.1.1 failure mode. It sends server.json to
@@ -207,6 +222,7 @@ jobs:
         run: ./mcp-publisher validate
 
       - name: Pack
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.registry_only) }}
         run: pnpm pack
 
       - name: Publish to npmjs (trusted publishing)
@@ -215,7 +231,7 @@ jobs:
         # packaging without shipping anything.
         # --provenance is explicit as well as set in publishConfig, so a
         # silent regression is impossible.
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.rehearsal || inputs.registry_only)) }}
         run: npm publish --provenance ./forestrie-mcp-resolve-*.tgz
 
       # List dev.forestrie/resolve with the official MCP registry, after the
@@ -223,6 +239,27 @@ jobs:
       # package.json#mcpName from the just-published tarball). Same guard as
       # the npm Publish step above: a rehearsal never lists anything, npm or
       # the MCP registry alike.
+      # npm processes a publish asynchronously and mcp-publisher's ownership
+      # check asks npm for the exact version; the verifier's v0.5.0 release
+      # lost that race (npm served the version five minutes after the step
+      # ran). Wait for npm to serve package.json#version, up to ten minutes,
+      # before listing; fail closed after that.
+      - name: Wait for npm to serve this version
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          for i in $(seq 1 40); do
+            if curl -sSf "https://registry.npmjs.org/@forestrie%2Fmcp-resolve/${version}" >/dev/null 2>&1; then
+              echo "npm serves @forestrie/mcp-resolve@${version}"
+              exit 0
+            fi
+            echo "npm does not serve ${version} yet (attempt ${i}/40); waiting 15s"
+            sleep 15
+          done
+          echo "npm never served @forestrie/mcp-resolve@${version}; not listing" >&2
+          exit 1
+
       - name: mcp-publisher login (DNS)
         # Requires the apex TXT record on forestrie.dev (it authorises every
         # name under dev.forestrie/*) and the

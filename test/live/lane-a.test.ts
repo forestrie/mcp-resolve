@@ -32,7 +32,7 @@ import type {
 } from "../../src/core/index.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LANE_A_DIR = path.join(HERE, "..", "fixtures", "lane-a");
+const LANE_A_DIR = path.join(HERE, "..", "fixtures", "lane-a-0.5.0");
 /**
  * Vendored byte-for-byte from the published mcp-verify 0.4.0 tarball's
  * `fixtures/self/` (test/fixtures/lane-a/PROVENANCE.md) — the pair that
@@ -47,10 +47,10 @@ const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
 const STATEMENT_COSE_PATH = path.join(LANE_A_DIR, "statement.cose");
 const LOG_KEY_PATH = path.join(LANE_A_DIR, "log-key.xy.b64");
 
-const BOOTSTRAP_LOG_ID = "67876864-3b46-67ae-dcb3-13cc81624aa5";
-const PUBLICATIONS_LOG_ID = "e8345800-a747-4e62-9409-61622b836f1f";
+const BOOTSTRAP_LOG_ID = "e22c8d55-3f88-b2b5-f225-5d2c2441bcdd";
+const PUBLICATIONS_LOG_ID = "da6f297c-4a0c-4c9a-b2ae-e701e558721d";
 const MASSIF_HEIGHT = 14;
-const ENTRY_ID = "a09a6337ee0009000000000000000008";
+const ENTRY_ID = "a0caa672b7030b000000000000000001";
 
 /** The parts of a COSE_Sign1 receipt that must not change between serves. */
 interface ReceiptParts {

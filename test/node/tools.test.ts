@@ -144,6 +144,12 @@ const BUNDLED_STATEMENT_COSE_PATH = path.join(
 const BUNDLED_ENTRY_ID = utf8OfFile(
   path.join(VERIFY_FIXTURES_DIR, "entry-id.txt"),
 );
+/** The INSTALLED bundle's own log owner key. From mcp-verify 0.5.0 the
+ *  release key is a fresh one (the publications log was re-created on the
+ *  re-genesised lane A), so it no longer matches the vendored
+ *  `LOG_KEY_PATH`; the bundle-verifies-under-its-own-terms check below
+ *  reads the key from the same bundle as the receipt it checks. */
+const BUNDLED_LOG_KEY_PATH = path.join(VERIFY_FIXTURES_DIR, "log-key.xy.b64");
 const LANE_A_GENESIS_PATH = path.join(LANE_A_DIR, "genesis.cbor");
 const LANE_A_RECEIPT_PATH = path.join(LANE_A_DIR, "receipt-self.cbor");
 /** The synthetic buried-peak fixture's fabricated "latest" `logState`
@@ -1402,20 +1408,23 @@ describe("verify_fetched_receipt", () => {
 
     // The INSTALLED mcp-verify's own bundled fixtures/self/ is a fresh
     // self-registration every release — a different entry id, statement
-    // and receipt each time (only log-key.xy.b64 has stayed byte-identical
-    // across 0.4.0 and 0.4.1) — so it no longer pairs with ENTRY_ID or the
-    // vendored STATEMENT_COSE_PATH the way it did when Amendment A was
-    // written against 0.4.0. This check reads its entry id, statement and
-    // receipt all from that same installed bundle instead, and asserts
-    // only that the bundle verifies under its own terms (sealing and
-    // attribution ok, under the log key both fixture generations share) —
-    // not that it reproduces lane-A's specific questions, which was a
-    // coincidence of 0.4.0's fixture pairing, not a general guarantee.
+    // and receipt each time, and from 0.5.0 a different log owner key too
+    // — so it no longer pairs with ENTRY_ID, the vendored
+    // STATEMENT_COSE_PATH or LOG_KEY_PATH. This check reads its entry id,
+    // statement, receipt AND key all from that same installed bundle, and
+    // asserts only that the bundle verifies under its own terms (sealing
+    // and attribution ok) — not that it reproduces lane-A's specific
+    // questions, which was a coincidence of 0.4.0's fixture pairing.
     const bundledDirect = await verifyReceipt({
       receipt: new Uint8Array(readFileSync(BUNDLED_RECEIPT_PATH)),
       payload: new Uint8Array(readFileSync(BUNDLED_STATEMENT_COSE_PATH)),
       entryId: BUNDLED_ENTRY_ID,
-      trust,
+      trust: {
+        root: "known-log-key",
+        keyXy: new Uint8Array(
+          Buffer.from(utf8OfFile(BUNDLED_LOG_KEY_PATH), "base64"),
+        ),
+      },
     });
     expect(bundledDirect.ok).toBe(true);
     expect(bundledDirect.questions["sealing"]?.status).toBe("ok");

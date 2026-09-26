@@ -80,7 +80,19 @@ export type LaneAReplay = {
   urls: Record<string, string>;
 };
 
-export async function createLaneAReplay(): Promise<LaneAReplay> {
+/** The re-genesised lane A (2026-09-22, mcp-verify 0.5.0's own
+ *  registration) — same five exchange names, recorded under
+ *  `test/fixtures/lane-a-0.5.0/`. See that directory's PROVENANCE.md. */
+export const LANE_A_050_DIR = path.join(
+  HERE,
+  "..",
+  "fixtures",
+  "lane-a-0.5.0",
+);
+
+export async function createLaneAReplay(
+  dir: string = LANE_A_DIR,
+): Promise<LaneAReplay> {
   const entries = new Map<
     string,
     { status: number; headers: Record<string, string>; body: Uint8Array }
@@ -88,15 +100,20 @@ export async function createLaneAReplay(): Promise<LaneAReplay> {
   const urls: Record<string, string> = {};
 
   for (const [name, bodyFile] of Object.entries(LANE_A_BODY_FILES)) {
-    const metaRaw = await readFile(
-      path.join(LANE_A_DIR, `${name}.meta.json`),
-      "utf8",
-    );
+    let metaRaw: string;
+    try {
+      metaRaw = await readFile(path.join(dir, `${name}.meta.json`), "utf8");
+    } catch (err) {
+      // A lane directory need not record every exchange name (lane-a-0.5.0
+      // has no receipt-404); a missing one is simply not replayable.
+      if ((err as { code?: string }).code === "ENOENT") continue;
+      throw err;
+    }
     const meta = JSON.parse(metaRaw) as LaneAMeta;
     const body =
       bodyFile === undefined
         ? new Uint8Array(0)
-        : new Uint8Array(await readFile(path.join(LANE_A_DIR, bodyFile)));
+        : new Uint8Array(await readFile(path.join(dir, bodyFile)));
     entries.set(meta.url, {
       status: meta.status,
       headers: meta.headers,
