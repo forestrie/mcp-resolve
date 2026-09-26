@@ -1,11 +1,14 @@
 # @forestrie/mcp-resolve
 
-An MCP server that fetches the material
+Fetch a SCITT receipt, its log's genesis document and its on-chain
+accumulator, and hand them to
 [`@forestrie/mcp-verify`](https://www.npmjs.com/package/@forestrie/mcp-verify)
-verifies: a receipt, a genesis document, an accumulator snapshot, a
-registration status, a service configuration. Every result says where its
-bytes came from and which of the four questions of the trust model they can
-support. Listed in the MCP registry as `dev.forestrie/resolve`.
+to verify — including the split-view answer, from a chain read. An MCP
+server that fetches the material the verifier verifies: a receipt, a
+genesis document, an accumulator snapshot, a registration status, a
+service configuration. Every result says where its bytes came from and
+which of the four questions of the trust model they can support. Listed in
+the MCP registry as `dev.forestrie/resolve`.
 
 The verifier runs entirely in your process with no network, no account,
 no key and no backend, and its own rule is that installing it can never imply a

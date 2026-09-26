@@ -1,7 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "dev.forestrie/resolve",
-  "description": "Fetches receipts, genesis and accumulator snapshots for @forestrie/mcp-verify and labels provenance",
+  "title": "Fetch SCITT receipts and on-chain anchors for offline verification",
+  "description": "Fetch a SCITT receipt, its genesis and on-chain accumulator for @forestrie/mcp-verify to verify",
   "version": "0.2.0",
   "repository": {
     "url": "https://github.com/forestrie/mcp-resolve",
