@@ -9,3 +9,13 @@ export declare function findMcpResolveCopies(
   rootDir: string,
   maxDepth?: number,
 ): string[];
+
+export interface InstalledTreeScan {
+  hits: string[];
+  sawHost: boolean;
+  errors: string[];
+}
+export declare function scanInstalledTree(
+  rootDir: string,
+  maxDepth?: number,
+): InstalledTreeScan;

@@ -6,11 +6,20 @@
  * layout — and must find nothing in a clean tree. Pure filesystem walk,
  * synthetic fixtures only: no network, no real install.
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findMcpResolveCopies } from "../../scripts/check-reverse-dependency.mjs";
+import {
+  findMcpResolveCopies,
+  scanInstalledTree,
+} from "../../scripts/check-reverse-dependency.mjs";
 
 let scratchDir: string | undefined;
 
@@ -135,5 +144,92 @@ describe("check:reverse-dependency — findMcpResolveCopies", () => {
     );
 
     expect(findMcpResolveCopies(scratchDir)).toEqual([]);
+  });
+});
+
+describe("check:reverse-dependency — scanInstalledTree (part 1)", () => {
+  const host = (root: string) =>
+    writePkg(
+      join(root, "node_modules", "@forestrie", "mcp-verify"),
+      "@forestrie/mcp-verify",
+    );
+
+  it("finds a copy planted as a pnpm sibling, outside mcp-verify's own directory", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-scan-pnpm-"));
+    host(scratchDir);
+    const planted = join(
+      scratchDir,
+      "node_modules",
+      ".pnpm",
+      "some-dep@1.0.0",
+      "node_modules",
+      "@forestrie",
+      "mcp-resolve",
+    );
+    writePkg(planted, "@forestrie/mcp-resolve");
+    const scan = scanInstalledTree(scratchDir);
+    expect(scan.hits).toEqual([planted]);
+    expect(scan.sawHost).toBe(true);
+    expect(scan.errors).toEqual([]);
+  });
+
+  it("reports host-not-seen when mcp-verify is absent", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-nohost-"));
+    writePkg(join(scratchDir, "node_modules", "left-pad"), "left-pad");
+    const scan = scanInstalledTree(scratchDir);
+    expect(scan.sawHost).toBe(false);
+    expect(scan.hits).toEqual([]);
+  });
+
+  it("reports host-not-seen when there is no node_modules at all", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-empty-"));
+    expect(scanInstalledTree(scratchDir).sawHost).toBe(false);
+  });
+
+  it("fails closed on a package.json that exists but does not parse", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-corrupt-"));
+    host(scratchDir);
+    const bad = join(scratchDir, "node_modules", "broken");
+    mkdirSync(bad, { recursive: true });
+    writeFileSync(join(bad, "package.json"), "{ not json", "utf8");
+    const scan = scanInstalledTree(scratchDir);
+    expect(scan.errors).toHaveLength(1);
+    expect(scan.errors[0]).toContain("unparseable");
+  });
+
+  it("fails closed when the depth limit is hit", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-depth-"));
+    host(scratchDir);
+    let dir = join(scratchDir, "node_modules", "a");
+    writePkg(dir, "a");
+    for (const n of ["b", "c", "d"]) {
+      dir = join(dir, "node_modules", n);
+      writePkg(dir, n);
+    }
+    const scan = scanInstalledTree(scratchDir, 3);
+    expect(scan.errors.some((e) => e.includes("depth limit"))).toBe(true);
+  });
+
+  it("terminates on a symlink cycle, and still finds a copy beside it", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-cycle-"));
+    host(scratchDir);
+    const a = join(scratchDir, "node_modules", "a");
+    writePkg(a, "a");
+    mkdirSync(join(a, "node_modules"), { recursive: true });
+    // a/node_modules/loop -> a: walking loop revisits a forever, unguarded.
+    symlinkSync(a, join(a, "node_modules", "loop"), "dir");
+    const planted = join(
+      scratchDir,
+      "node_modules",
+      "z",
+      "node_modules",
+      "@forestrie",
+      "mcp-resolve",
+    );
+    writePkg(join(scratchDir, "node_modules", "z"), "z");
+    writePkg(planted, "@forestrie/mcp-resolve");
+    const scan = scanInstalledTree(scratchDir);
+    expect(scan.hits).toEqual([planted]);
+    expect(scan.errors).toEqual([]);
   });
 });

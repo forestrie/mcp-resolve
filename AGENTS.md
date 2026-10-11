@@ -42,15 +42,17 @@ All CI-blocking, checked before every merge:
    `@forestrie/*` package this repo pins, run on the repo and on a scratch
    `npm i` of the packed tarball.
 4. **`check:reverse-dependency`** — `@forestrie/mcp-verify`
-   must never depend back on `@forestrie/mcp-resolve`: walks the repo's own
-   `node_modules/@forestrie/mcp-verify` for a nested `@forestrie/mcp-resolve`,
-   and separately does a scratch `npm i @forestrie/mcp-verify@<pin>` and
+   must never depend back on `@forestrie/mcp-resolve`: walks the repo's whole
+   installed tree (including pnpm's `.pnpm` store) for any
+   `@forestrie/mcp-resolve`, failing closed if the walk errors, hits its depth
+   limit or never sees `@forestrie/mcp-verify`, and separately does a scratch `npm i @forestrie/mcp-verify@<pin>` and
    checks that tree too (`npm ls @forestrie/mcp-resolve` plus the same
    filesystem walk) — npm's flat resolver is what an `npm i`/`npx` user of
    mcp-verify actually gets, not pnpm's isolated store. Fails closed (never
    silently passes) if the scratch install itself cannot run, e.g. offline.
-5. **`check:stdio-clean`** — the real bin writes exactly one `initialize`
-   response to stdout and nothing else.
+5. **`check:stdio-clean`** — the real bin answers `initialize` and
+   `tools/list` on stdout, and every stdout line over a 500 ms quiet window
+   afterwards is a well-formed JSON-RPC message, nothing else.
 6. **`check:server-json`** — `server.json` validates with ajv against the
    registry schema vendored at `tools/registry-schema/2025-12-11.json` (the
    exact `$schema` `server.json` names, fetched once and committed so the
@@ -117,7 +119,8 @@ a malformed JSON-RPC frame and an MCP client that mysteriously fails to
 initialise. All logging goes to **stderr**.
 
 `pnpm run check:stdio-clean` spawns the real bin and asserts stdout carries
-exactly one well-formed `initialize` response and nothing else. The in-memory
+only well-formed JSON-RPC responses to the requests it sent (`initialize`,
+`tools/list`) and nothing else. The in-memory
 smoke test cannot catch this; only a real process can.
 
 Related: `main()` returns an exit code and does **not** call `process.exit`.

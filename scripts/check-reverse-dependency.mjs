@@ -10,8 +10,10 @@
  * "install mcp-verify alone" pull in an MCP server nobody asked for.
  *
  * Two invocations, both required:
- *   1. The repo's own node_modules/@forestrie/mcp-verify (this is what this
- *      package is actually built and tested against today).
+ *   1. The repo's whole installed tree (node_modules, including pnpm's
+ *      `.pnpm` store with every transitive dependency), failing closed if
+ *      the walk errors, hits its depth limit, or never sees mcp-verify.
+ *      Offline.
  *   2. A scratch `npm i @forestrie/mcp-verify@<pin>` in a throwaway
  *      directory, under npm's flat resolver — not pnpm's isolated store —
  *      because that is what an `npm i @forestrie/mcp-verify` (or
@@ -34,70 +36,127 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TARGET = "@forestrie/mcp-resolve";
+const HOST = "@forestrie/mcp-verify";
 // A little deeper than check-encoding-single-copy's 12: a scratch npm
 // install adds one more nesting level than pnpm's own store layout does.
 const MAX_DEPTH = 16;
 
 /**
- * Pure: walk `rootDir/node_modules` and return every directory whose own
- * package.json declares `name === "@forestrie/mcp-resolve"`. Handles pnpm's
- * `.pnpm/<key>/node_modules/<scope>/<name>` store layout and plain nested
- * `node_modules/<scope>/<name>` alike, because both fall out of the same
- * walk: an entry with its own package.json is a package (checked, then
- * recursed into via its own node_modules); an entry without one — a scope
- * directory, `.pnpm` itself, or one of its store-key directories — is just
- * a container, recursed into directly. No layout-specific special-casing.
+ * Pure: walk `rootDir/node_modules` and report what the tree contains.
+ * Returns `{ hits, sawHost, errors }`:
+ *   hits    every directory whose own package.json declares
+ *           `name === "@forestrie/mcp-resolve"`;
+ *   sawHost whether a package named `@forestrie/mcp-verify` was seen, so a
+ *           caller can refuse a vacuous pass over a tree that never held it;
+ *   errors  everything that stopped the walk being exhaustive: a readdir
+ *           error other than ENOENT, a package.json that exists but does
+ *           not parse, or the depth limit. Any entry here is a FAILURE.
+ *
+ * Handles pnpm's `.pnpm/<key>/node_modules/<scope>/<name>` store layout and
+ * plain nested `node_modules/<scope>/<name>` alike, because both fall out of
+ * the same walk: an entry with its own package.json is a package (checked,
+ * then recursed into via its own node_modules); an entry without one — a
+ * scope directory, `.pnpm` itself, or one of its store-key directories — is
+ * a container, recursed into directly. Visited realpaths are remembered so
+ * pnpm's symlinks (and any cycle) are each walked once.
  */
-export function findMcpResolveCopies(rootDir, maxDepth = MAX_DEPTH) {
+export function scanInstalledTree(rootDir, maxDepth = MAX_DEPTH) {
   const hits = [];
+  const errors = [];
+  let sawHost = false;
+  const visited = new Set();
 
-  function pkgNameOf(dir) {
+  const code = (err) =>
+    err && typeof err === "object" ? err.code : undefined;
+
+  /** @returns {{kind:"package", name?:string} | {kind:"container"} | {kind:"error"}} */
+  function classify(dir) {
+    let text;
     try {
-      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-      return typeof pkg.name === "string" ? pkg.name : undefined;
-    } catch {
-      return undefined;
+      text = readFileSync(join(dir, "package.json"), "utf8");
+    } catch (err) {
+      if (code(err) === "ENOENT" || code(err) === "ENOTDIR")
+        return { kind: "container" };
+      errors.push(`cannot read ${join(dir, "package.json")}: ${String(err)}`);
+      return { kind: "error" };
+    }
+    try {
+      const pkg = JSON.parse(text);
+      return {
+        kind: "package",
+        name: typeof pkg?.name === "string" ? pkg.name : undefined,
+      };
+    } catch (err) {
+      errors.push(
+        `unparseable ${join(dir, "package.json")}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { kind: "error" };
     }
   }
 
   function walk(dir, depth) {
-    if (depth > maxDepth) return;
+    if (depth > maxDepth) {
+      errors.push(`depth limit ${maxDepth} reached at ${dir}`);
+      return;
+    }
+    let real;
+    try {
+      real = realpathSync(dir);
+    } catch (err) {
+      if (code(err) !== "ENOENT")
+        errors.push(`cannot resolve ${dir}: ${String(err)}`);
+      return;
+    }
+    if (visited.has(real)) return;
+    visited.add(real);
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (code(err) !== "ENOENT")
+        errors.push(`cannot read directory ${dir}: ${String(err)}`);
       return;
     }
     for (const e of entries) {
-      if (!e.isDirectory() && !e.isSymbolicLink()) continue;
       if (e.name === ".bin" || e.name === ".cache") continue;
       const p = join(dir, e.name);
-      const name = pkgNameOf(p);
-      if (name !== undefined) {
-        // `p` has its own package.json: it's a real package directory.
-        if (name === TARGET) hits.push(p);
+      if (e.isSymbolicLink()) {
+        try {
+          if (!statSync(p).isDirectory()) continue;
+        } catch (err) {
+          if (code(err) !== "ENOENT")
+            errors.push(`cannot stat ${p}: ${String(err)}`);
+          continue;
+        }
+      } else if (!e.isDirectory()) {
+        continue;
+      }
+      const c = classify(p);
+      if (c.kind === "error") continue;
+      if (c.kind === "package") {
+        if (c.name === TARGET) hits.push(p);
+        if (c.name === HOST) sawHost = true;
         walk(join(p, "node_modules"), depth + 1);
       } else {
-        // No package.json of its own: a scope directory (`@forestrie`), or
-        // one of pnpm's containers — `.pnpm` itself, or one of its
-        // `<name>@<version>` / `@scope+name@<version>` store-key entries,
-        // which hold the real package one level further down, inside their
-        // own `node_modules`. All of these are just containers; recurse
-        // straight into them (not through a `node_modules` hop, since they
-        // don't have deps of their own — their *contents* do).
         walk(p, depth + 1);
       }
     }
   }
 
   walk(join(rootDir, "node_modules"), 0);
-  return hits;
+  return { hits, sawHost, errors };
+}
+
+/** Just the hits of `scanInstalledTree`. */
+export function findMcpResolveCopies(rootDir, maxDepth = MAX_DEPTH) {
+  return scanInstalledTree(rootDir, maxDepth).hits;
 }
 
 /** Recursively search an `npm ls --json` tree for TARGET nodes. */
@@ -127,31 +186,42 @@ function report(label, hits) {
   return false;
 }
 
+/** Report a full scan: hits, walk errors, and (optionally) host-not-seen. */
+function reportScan(label, scan, requireHost) {
+  let ok = report(label, scan.hits);
+  if (scan.errors.length > 0) {
+    console.error(
+      `reverse-dependency check FAILED: ${label} — the walk was not exhaustive:`,
+    );
+    for (const e of scan.errors) console.error(`  ${e}`);
+    ok = false;
+  }
+  if (requireHost && !scan.sawHost) {
+    console.error(
+      `reverse-dependency check FAILED: ${label} — never saw ${HOST}, so ` +
+        `an empty result would prove nothing. Is the install done?`,
+    );
+    ok = false;
+  }
+  return ok;
+}
+
 function main() {
   const repoRoot = process.argv[2] ?? process.cwd();
   let ok = true;
 
-  // --- Part 1: the repo's own installed mcp-verify -----------------------
-  const mcpVerifyLink = join(
-    repoRoot,
-    "node_modules",
-    "@forestrie",
-    "mcp-verify",
-  );
-  let mcpVerifyReal;
-  try {
-    mcpVerifyReal = realpathSync(mcpVerifyLink);
-  } catch (err) {
-    console.error(
-      `reverse-dependency check FAILED: could not resolve ${mcpVerifyLink} ` +
-        `— is \`pnpm install\` done? (${err instanceof Error ? err.message : String(err)})`,
-    );
-    process.exit(1);
-  }
+  // --- Part 1: the repo's whole installed tree --------------------------
+  // Under pnpm a package's dependencies are siblings in
+  // `.pnpm/<key>/node_modules/`, not nested inside it, so walking only
+  // mcp-verify's own directory checks nothing. Walk everything: this
+  // package is never installed into its own node_modules, so ANY copy means
+  // some dependency depends back on it. Requires seeing mcp-verify so it
+  // cannot pass vacuously.
   ok =
-    report(
-      `repo node_modules (${mcpVerifyReal})`,
-      findMcpResolveCopies(mcpVerifyReal),
+    reportScan(
+      `repo node_modules (${repoRoot})`,
+      scanInstalledTree(repoRoot),
+      true,
     ) && ok;
 
   // --- Part 2: a scratch install under npm's own flat resolver -----------
@@ -222,9 +292,10 @@ function main() {
     }
     ok = report(`scratch npm ls --json (${scratchDir})`, lsHits) && ok;
     ok =
-      report(
+      reportScan(
         `scratch install tree (${scratchDir})`,
-        findMcpResolveCopies(scratchDir),
+        scanInstalledTree(scratchDir),
+        true,
       ) && ok;
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });
