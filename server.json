@@ -3,7 +3,7 @@
   "name": "dev.forestrie/resolve",
   "title": "Fetch SCITT receipts and on-chain anchors for offline verification",
   "description": "Fetch a SCITT receipt, its genesis and on-chain accumulator for @forestrie/mcp-verify to verify",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "repository": {
     "url": "https://github.com/forestrie/mcp-resolve",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@forestrie/mcp-resolve",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
