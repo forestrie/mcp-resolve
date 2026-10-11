@@ -12,7 +12,7 @@
  * whenever it is absent, so a clean checkout still gets a real answer
  * instead of a false green.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,4 +67,55 @@ describe("check:stdio-clean", () => {
       )})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
     ).toBe(0);
   });
+
+  it("exits 0 promptly on SIGTERM while the client's stdin is still open", async () => {
+    if (buildFailure !== undefined) {
+      throw new Error(buildFailure);
+    }
+    const child = spawn(process.execPath, [DIST_CLI], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    try {
+      let stdout = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (d: string) => {
+        stdout += d;
+      });
+      const exited = new Promise<{
+        code: number | null;
+        signal: NodeJS.Signals | null;
+      }>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", (code, signal) => resolve({ code, signal }));
+      });
+      child.stdin.write(
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "sigterm-test", version: "0" },
+          },
+        })}\n`,
+      );
+      const start = Date.now();
+      while (!stdout.includes("\n")) {
+        if (Date.now() - start > 10_000) {
+          throw new Error(`no initialize response; stdout: ${stdout}`);
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      // Deliberately NOT ending stdin: the client's pipe stays open.
+      child.kill("SIGTERM");
+      const result = await Promise.race([
+        exited,
+        new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 2_000)),
+      ]);
+      expect(result).toEqual({ code: 0, signal: null });
+    } finally {
+      child.kill("SIGKILL");
+    }
+  }, 20_000);
 });
