@@ -42,9 +42,10 @@ All CI-blocking, checked before every merge:
    `@forestrie/*` package this repo pins, run on the repo and on a scratch
    `npm i` of the packed tarball.
 4. **`check:reverse-dependency`** — `@forestrie/mcp-verify`
-   must never depend back on `@forestrie/mcp-resolve`: walks the repo's own
-   `node_modules/@forestrie/mcp-verify` for a nested `@forestrie/mcp-resolve`,
-   and separately does a scratch `npm i @forestrie/mcp-verify@<pin>` and
+   must never depend back on `@forestrie/mcp-resolve`: walks the repo's whole
+   installed tree (including pnpm's `.pnpm` store) for any
+   `@forestrie/mcp-resolve`, failing closed if the walk errors, hits its depth
+   limit or never sees `@forestrie/mcp-verify`, and separately does a scratch `npm i @forestrie/mcp-verify@<pin>` and
    checks that tree too (`npm ls @forestrie/mcp-resolve` plus the same
    filesystem walk) — npm's flat resolver is what an `npm i`/`npx` user of
    mcp-verify actually gets, not pnpm's isolated store. Fails closed (never
