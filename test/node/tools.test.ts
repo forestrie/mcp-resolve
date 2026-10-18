@@ -2060,12 +2060,12 @@ describe("verify_fetched_receipt", () => {
     expect(structured.ok).toBe(false);
     expect(structured.stage).toBe("parse");
     // The self receipt's committed payload (statement.cose, a plain
-    // COSE-signed statement) is neither a Forestrie-Grant COSE Sign1 nor a
-    // raw grant payload CBOR map, so verifyGrantReceipt fails at parse
+    // COSE-signed statement) is not a Forestrie-Grant (its COSE payload is
+    // not the 32-byte digest one carries), so verifyGrantReceipt fails at parse
     // before any signature/inclusion check runs (checked directly against
     // the verifier). Quoting the verifier's own reason verbatim.
     expect(structured.reason).toBe(
-      "committedGrant is neither a Forestrie-Grant COSE Sign1 nor a raw grant payload: Grant payload must be a CBOR map",
+      "committedGrant is a Forestrie-Grant COSE Sign1 but failed to decode: Forestrie-Grant COSE payload must be 32-byte digest",
     );
     expect(structured.diagnostics.map((d) => d.code)).toContain(
       "receipt_fetched_from_operator",
