@@ -148,6 +148,36 @@ the log at _S_; it answers split-view for any receipt whose peak is among
 them, and for no other, which is why the tool returns the history rather
 than one state.
 
+### `fetch_ks256_attestation` — supports no question on its own; it is a chain read for the verifier to consume
+
+> the contract root's own ERC-1271 answer at one block, read from the chain:
+> valid under the contract's signers at that block, not a local signature
+> check; it answers no question until @forestrie/mcp-verify consumes it as
+> ks256Attestation under a genesis or known-log-key root you hold
+
+When a forest's root is a contract (a Safe), the delegation certificate it
+signed cannot be checked by ecrecover: only the contract knows whether its
+signers approved. This tool puts the question to the contract. It takes the
+digest and signature out of the receipt's certificate and makes one
+`eth_call` of `isValidSignature(digest, signature)` at a block, after
+`eth_chainId`, `eth_getBlockByNumber` and `eth_getCode`, every state read
+pinned to that block's number. The answer, with the chain id, root address,
+digest, a hash of the signature, the block number and block hash, comes back
+as canonical CBOR for `verify_receipt`'s `ks256Attestation` input.
+
+The chain read is this package's; the verifier never makes one. What the
+attestation carries is narrower than an externally owned root's offline
+check: the certificate is valid under the contract's signers _at that
+block_, and the contract's signers can change. It binds the block hash, so
+anyone with RPC can re-run the same call at the same block and confirm or
+disprove it. When the root is given by a genesis you hold, the RPC's chain
+id must equal the genesis chain, and the verifier checks the same again.
+
+The tool refuses, with a structured problem and never an attestation, when
+the root has no contract code at the block (an externally owned root needs
+no attestation), when the call reverts, and when it returns anything but the
+ERC-1271 magic value.
+
 ### `fetch_scitt_configuration` — supports none of the four questions
 
 > operator self-description; evidence for none of the four questions

@@ -108,6 +108,7 @@ const TOOL_NAMES: ToolName[] = [
   "fetch_genesis",
   "fetch_accumulator",
   "fetch_checkpoint_history",
+  "fetch_ks256_attestation",
   "verify_fetched_receipt",
 ];
 

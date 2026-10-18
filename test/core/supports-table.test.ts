@@ -33,6 +33,10 @@ const EXPECTED_SUPPORTS = {
     ],
     note: "split-view against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, stated as inheritance, never as a local signature check; a kept checkpoint answers split-view later, without another chain read, for any receipt whose peak it contains",
   },
+  fetch_ks256_attestation: {
+    rows: [],
+    note: "the contract root's own ERC-1271 answer at one block, read from the chain: valid under the contract's signers at that block, not a local signature check; it answers no question until @forestrie/mcp-verify consumes it as ks256Attestation under a genesis or known-log-key root you hold",
+  },
   fetch_scitt_configuration: {
     rows: [],
     note: "operator self-description; evidence for none of the four questions",
@@ -48,7 +52,7 @@ const EXPECTED_SUPPORTS = {
 } as const;
 
 describe("SUPPORTS", () => {
-  it("has exactly the seven tool names", () => {
+  it("has exactly the eight tool names", () => {
     expect(Object.keys(SUPPORTS).sort()).toEqual(
       Object.keys(EXPECTED_SUPPORTS).sort(),
     );

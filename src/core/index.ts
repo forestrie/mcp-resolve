@@ -130,3 +130,6 @@ export type {
   VerifierIdentity,
   VerifyResult,
 } from "./result.js";
+
+export { erc1271MagicFromReturn, buildKs256Attestation } from "./ks256.js";
+export type { Ks256AttestationFields } from "./ks256.js";
