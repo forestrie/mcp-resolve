@@ -44,7 +44,7 @@ const EXPECTED = {
   "@forestrie/scrapi-client": "0.2.4",
   "@forestrie/receipt-verify": "3.1.0",
   "@forestrie/chain-rpc": "0.3.0",
-  "@forestrie/mcp-verify": "0.6.0",
+  "@forestrie/mcp-verify": "0.6.1",
 };
 
 /**
