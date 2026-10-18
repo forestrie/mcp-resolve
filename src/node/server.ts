@@ -4,7 +4,7 @@
  * is also what lets an embedder mount tools on their own transport without
  * the CLI.
  *
- * Registers the seven tools, each annotated `{ readOnlyHint: true,
+ * Registers the eight tools, each annotated `{ readOnlyHint: true,
  * destructiveHint: false, idempotentHint: true, openWorldHint: true }`:
  * every one of them fetches, unlike the verifier's own tools.
  */
@@ -21,6 +21,8 @@ import {
   fetchAccumulatorOutputShape,
   fetchCheckpointHistoryInputShape,
   fetchCheckpointHistoryOutputShape,
+  fetchKs256AttestationInputShape,
+  fetchKs256AttestationOutputShape,
   fetchGenesisInputShape,
   fetchGenesisOutputShape,
   fetchReceiptInputShape,
@@ -33,6 +35,7 @@ import {
   verifyFetchedReceiptOutputShape,
   makeFetchAccumulatorTool,
   makeFetchCheckpointHistoryTool,
+  makeFetchKs256AttestationTool,
   makeFetchGenesisTool,
   makeFetchReceiptTool,
   makeFetchScittConfigurationTool,
@@ -158,6 +161,18 @@ export function createServer(deps?: Deps): McpServer {
 
   server.registerTool(
     TOOL_NAMES[6],
+    {
+      title: TOOL_TITLES.fetch_ks256_attestation,
+      description: TOOL_DESCRIPTIONS.fetch_ks256_attestation,
+      inputSchema: fetchKs256AttestationInputShape,
+      outputSchema: fetchKs256AttestationOutputShape,
+      annotations: ANNOTATIONS,
+    },
+    makeFetchKs256AttestationTool(resolved),
+  );
+
+  server.registerTool(
+    TOOL_NAMES[7],
     {
       title: TOOL_TITLES.verify_fetched_receipt,
       description: TOOL_DESCRIPTIONS.verify_fetched_receipt,

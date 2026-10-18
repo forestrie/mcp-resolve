@@ -1,6 +1,6 @@
 /**
  * Outward-facing text for the MCP adapter: the server `instructions` string
- * and the seven tool descriptions. The wording is deliberate: the
+ * and the eight tool descriptions. The wording is deliberate: the
  * vocabulary is "trust roots" and "the four questions", and nothing here
  * ranks the roots. Change it on purpose, never in passing. The `supports` notes themselves live in
  * `src/core/provenance.ts` and are asserted verbatim by
@@ -18,9 +18,11 @@ verify_fetched_receipt fetches a receipt and verifies it under a root you supply
 
 The univocity contract keeps only a log's latest state. A receipt's inclusion proof leads to one peak, and later growth folds peaks together, so a receipt verified today under the latest state may not verify under it next month, not because anything is wrong but because its peak is now inside a bigger one. When that happens the chain path of verify_fetched_receipt and fetch_accumulator (given forReceipt) look back through the contract's CheckpointPublished events, within a budget you set (chain.history: fromBlock, maxBlocks, chunkBlocks), for the newest published checkpoint that still holds the peak, and verify under that; the result says so (root_read_from_chain_history) and reports how many requests the look-back cost. fetch_checkpoint_history returns those checkpoints as snapshots you can keep: a kept checkpoint answers split-view later, without another chain read, for any receipt whose peak it contains.
 
+A forest whose root is a contract (a Safe) cannot have its delegation certificate checked by ecrecover, so offline verification needs the contract's own answer. fetch_ks256_attestation asks it, at one block, whether it accepts the receipt's certificate (ERC-1271 isValidSignature) and returns the answer as an attestation you pass to verify_receipt in @forestrie/mcp-verify as ks256Attestation. The chain read happens here; the verifier never makes it. The result is valid under the contract's signers at that block, nothing more, and anyone with RPC can re-run it.
+
 Requests. Each call makes one request per URL and never polls: query_registration returns pending or the receipt location, and you decide whether to call it again. An HTTP 429 comes back as a structured problem with status 429 and retryAfterMs when the server said so, not as an error. Bytes are returned base64-encoded, and a receipt also comes decoded so you can read what you fetched without a second call.`;
 
-/** The seven tool names, in registration order — the one list `server.ts`
+/** The eight tool names, in registration order — the one list `server.ts`
  *  registers from and `cli.ts`'s `--help` prints, so the two cannot drift
  *  (they did: `--help` listed six for a release). `test/node/help.test.ts`
  *  asserts `--help` names exactly what `tools/list` returns. */
@@ -31,6 +33,7 @@ export const TOOL_NAMES = [
   "fetch_genesis",
   "fetch_accumulator",
   "fetch_checkpoint_history",
+  "fetch_ks256_attestation",
   "verify_fetched_receipt",
 ] as const satisfies readonly ToolName[];
 
@@ -41,6 +44,7 @@ export const TOOL_TITLES: Record<ToolName, string> = {
   fetch_genesis: "Fetch genesis document",
   fetch_accumulator: "Fetch accumulator from chain",
   fetch_checkpoint_history: "Fetch checkpoint history from chain",
+  fetch_ks256_attestation: "Fetch KS256 attestation from chain",
   verify_fetched_receipt: "Fetch and verify receipt",
 };
 
@@ -62,6 +66,9 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
 
   fetch_checkpoint_history:
     "Read the log's published checkpoints from the univocity contract's CheckpointPublished events at your rpcUrl, newest first, in windows of history.chunkBlocks (default 10000) walking back from the latest block to history.fromBlock, or for at most history.maxBlocks (default 200000): one eth_getLogs per window, never an unbounded scan. The contract address and chain id come from a genesis you hold or are given explicitly, as for fetch_accumulator. Returns each checkpoint's size, accumulator, block number, block hash and transaction hash, plus the same checkpoint as a known-accumulator snapshot (base64) you can keep and later pass to verify_fetched_receipt as supplied bytes; and scannedFrom, scannedTo and the number of requests made. For capture: the contract keeps only its latest state, and a receipt whose peak later growth has buried verifies only against a checkpoint that still holds that peak, so keep the ones you need. Provenance: chain-read. Supports: as fetch_accumulator, split-view under known-accumulator against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, not by a local signature check.",
+
+  fetch_ks256_attestation:
+    "For a receipt whose delegation certificate is signed by a contract KS256 root (a Safe, say): ask the contract whether it accepts that certificate, and return the answer as an attestation @forestrie/mcp-verify can consume offline. Reads the chain at your rpcUrl (this tool does; mcp-verify never does): eth_chainId, eth_getBlockByNumber for your block (default latest), then eth_getCode at the root and one eth_call isValidSignature(digest, signature), where digest and signature come from the receipt's certificate. Both state reads are pinned by the block's hash (EIP-1898, requireCanonical), so the hash in the attestation is the state that was read. Give the receipt, and the root as root (0x 20-byte address) or as a genesis you hold (genesis; it supplies the root when root is absent, which must then be a KS256 bootstrap root, and always supplies the chain the RPC must be on; a chain id mismatch is a problem before any further call). Returns the attestation as canonical CBOR, base64-encoded, with its fields (chain id, root address, digest, signature hash, block number, block hash, magic). Pass it to verify_receipt in mcp-verify as ks256Attestation: it then attests the certificate valid under the contract's signers at block N, which is narrower than an EOA root's offline ecrecover check; anyone with RPC can re-run the call at that block to confirm or disprove it. Refuses, with a structured problem and never an attestation, when there is no contract code at the root (an EOA root verifies by ecrecover and needs none), when the call reverts, or when the return is anything but exactly one 32-byte word, 0x1626ba7e followed by 28 zero bytes (a short return, dirty padding, extra words or an echo of the call's own data are all refused); a malformed chain id, block or hash from the RPC is an rpc_error problem. With root given beside a genesis, root is the contract asked and the genesis supplies only the expected chain (provenance.binding is explicit, chainFrom held-genesis); binding is held-genesis only when the root came from the genesis. Provenance: chain-read. Supports: none of the four questions on its own; the attestation is evidence only once mcp-verify consumes it under a root you hold.",
 
   verify_fetched_receipt:
     "Fetch a receipt (as fetch_receipt) and verify it with @forestrie/mcp-verify's core under a trust root you supply as bytes (genesis, keyXy, accumulator, or checkpoints; each {b64} or {path}) or under an accumulator read from the chain in this call ({root: 'known-accumulator', chain: {genesis, rpcUrl, logId?} or {rpcUrl, univocity, logId?, chainId?}}). A genesis fetched in the same call is never the root. The result is the verifier's own: stages, the four questions (sealing, split-view, append-authority, attribution; not_answered_by_this_root is a real answer) and diagnostics, passed through unaltered, plus receipt_fetched_from_operator always and root_read_from_chain when the chain path was taken. If the latest chain state no longer holds the receipt's peak, the chain path walks CheckpointPublished history backwards within the bounds in chain.history (default 200000 blocks in windows of 10000, one eth_getLogs each) and verifies under the newest checkpoint that holds it, adding root_read_from_chain_history; running out of range is the structured problem history_scan_exhausted. The log read is the one you name, in chain.logId or in the receipt coordinates; if the receipt's delegation certificate names a different log, the result adds receipt_log_id_mismatch and the call still uses yours. If you name none, the call uses the certificate's log id and says so in provenance.logId, with source receipt-delegation-certificate. Supply payload bytes and the entry id to have attribution answered. The genesis root's offline walk resolves one delegation hop from the forest root: a receipt from a log further down the grant chain (the verifier's own publications log is a grandchild) fails under a supplied genesis with delegation_invalid, and the result adds genesis_root_reaches_direct_delegates_only to say that this is the walk's limit, not a finding about the receipt; verify such a receipt under known-log-key or known-accumulator.",

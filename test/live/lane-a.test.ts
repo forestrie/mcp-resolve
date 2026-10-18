@@ -379,7 +379,10 @@ describe.skipIf(!FORESTRIE_LIVE)(
         );
         expect(structured.provenance.root.binding).toBe("held-genesis");
         expect(structured.provenance.root.source).toBe("chain-read");
-        if (typeof structured.provenance.root.from === "object") {
+        if (
+          typeof structured.provenance.root.from === "object" &&
+          "univocity" in structured.provenance.root.from
+        ) {
           expect(structured.provenance.root.from.chainId).toBe(chainId);
           expect(structured.provenance.root.from.univocity).toBe(univocity);
         } else {

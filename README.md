@@ -142,17 +142,37 @@ verifier work here unchanged.
 section against the recorded lane-A fixtures, so a fixture re-capture
 cannot silently invalidate the example.
 
-## The seven tools
+## The eight tools
 
-| Tool                        | Provenance                           | What it does                                                                        | Supports                                    |
-| --------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------- |
-| `fetch_scitt_configuration` | fetched                              | `GET {baseUrl}/.well-known/scitt-configuration`                                     | none                                        |
-| `query_registration`        | fetched                              | one registration-status request for a statement; never polls                        | none                                        |
-| `fetch_receipt`             | fetched                              | fetches a receipt, decodes it, and reports the log its certificate names            | none on its own                             |
-| `fetch_genesis`             | fetched                              | fetches the forest's genesis document, with its chain binding and bootstrap key     | `sealing`, only for a copy you keep         |
-| `fetch_accumulator`         | chain-read                           | reads the log's published accumulator; looks back through history for a buried peak | `split-view`, `sealing`, `append-authority` |
-| `fetch_checkpoint_history`  | chain-read                           | reads published checkpoints back, newest first, within your block budget            | as `fetch_accumulator`                      |
-| `verify_fetched_receipt`    | fetched, plus supplied or chain-read | fetches a receipt and verifies it under a root you supply or read from the chain    | the verifier's own answers, unaltered       |
+| Tool                        | Provenance                           | What it does                                                                         | Supports                                    |
+| --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------- |
+| `fetch_scitt_configuration` | fetched                              | `GET {baseUrl}/.well-known/scitt-configuration`                                      | none                                        |
+| `query_registration`        | fetched                              | one registration-status request for a statement; never polls                         | none                                        |
+| `fetch_receipt`             | fetched                              | fetches a receipt, decodes it, and reports the log its certificate names             | none on its own                             |
+| `fetch_genesis`             | fetched                              | fetches the forest's genesis document, with its chain binding and bootstrap key      | `sealing`, only for a copy you keep         |
+| `fetch_accumulator`         | chain-read                           | reads the log's published accumulator; looks back through history for a buried peak  | `split-view`, `sealing`, `append-authority` |
+| `fetch_checkpoint_history`  | chain-read                           | reads published checkpoints back, newest first, within your block budget             | as `fetch_accumulator`                      |
+| `fetch_ks256_attestation`   | chain-read                           | asks a contract KS256 root, at one block, whether it accepts a receipt's certificate | none on its own; mcp-verify consumes it     |
+| `verify_fetched_receipt`    | fetched, plus supplied or chain-read | fetches a receipt and verifies it under a root you supply or read from the chain     | the verifier's own answers, unaltered       |
+
+`fetch_ks256_attestation` is for a forest whose root is a contract (a Safe).
+Such a root cannot be checked by ecrecover, so the verifier needs the
+contract's own answer, and getting it needs a chain read, which the verifier
+never makes. Give the tool the receipt and either the root address or a
+genesis you hold; it reads `isValidSignature(digest, signature)` at one block
+(default the latest, then pinned) and returns the answer as a canonical-CBOR
+attestation:
+
+```
+fetch_ks256_attestation  {receipt: {b64: …}, genesis: {b64: …}, rpcUrl: …, block?: 123}
+  -> attestation {base64, byteLength, sha256}, fields {chainId, address, digest,
+     signatureHash, blockNumber, blockHash, magic}, provenance, supports
+verify_receipt           {receipt: …, …, ks256Attestation: {b64: <attestation.base64>}}
+```
+
+The result says the certificate is valid under the contract's signers _at
+that block_, and anyone with RPC can re-run the call to confirm it. It
+refuses, and returns no attestation, for a root with no contract code (an externally owned root needs none), a reverting call, or any answer but exactly one 32-byte word, `0x1626ba7e` followed by 28 zero bytes (a short return, dirty padding, extra words or an echo of the call's own data are refused), and for an RPC on a different chain from your genesis. Both state reads are pinned by the block's hash (EIP-1898), so the hash in the attestation is the state that was read. With `root` given beside a genesis, `root` is the contract asked and the genesis supplies only the expected chain.
 
 Every tool is annotated read-only, idempotent and open-world, because every
 one of them talks to something outside your process. What each `supports`

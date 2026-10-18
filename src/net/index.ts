@@ -55,3 +55,10 @@ export type {
   FetchCheckpointHistoryResult,
   CheckpointHistoryProblem,
 } from "./history.js";
+
+export { readKs256Attestation } from "./ks256.js";
+export type {
+  ReadKs256AttestationInput,
+  ReadKs256AttestationResult,
+  Ks256Problem,
+} from "./ks256.js";

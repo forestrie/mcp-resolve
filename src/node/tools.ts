@@ -1,5 +1,5 @@
 /**
- * The seven tools' zod input/output shapes and handlers. Every handler
+ * The eight tools' zod input/output shapes and handlers. Every handler
  * returns `{ content, structuredContent, isError: false }` — an HTTP
  * problem, a 429, a `NetError`, a chain problem, and a malformed input are
  * ALL a `structuredContent.problem`, never a throw. Only a
@@ -20,18 +20,24 @@ import {
   decodeReceipt,
   type TrustRoot,
 } from "@forestrie/mcp-verify";
-import { decodeTrustRootDetailsFromGenesis } from "@forestrie/receipt-verify";
+import {
+  decodeTrustRootDetailsFromGenesis,
+  extractKs256DelegationDigest,
+} from "@forestrie/receipt-verify";
 import {
   EndpointError,
   GenesisBindingError,
   GrantLeafInputError,
+  ChainError,
   SUPPORTS,
+  buildKs256Attestation,
   classify,
   decodeChainBindingFromGenesis,
   decodeReceiptLogId,
   formatContractLogIdAsUuid,
   grantLeafInputs,
   isPeakNotInKnownAccumulator,
+  normalizeAddress,
   peakHeldIn,
   recomputePeakForReceipt,
   selectCheckpoint,
@@ -56,6 +62,7 @@ import {
   fetchScittConfiguration,
   queryRegistration,
   readChainHead,
+  readKs256Attestation,
   scanCheckpointHistory,
   toClassifyView,
   type FetchReceiptInput,
@@ -379,9 +386,18 @@ const ProvenanceSchema = z.looseObject({
       univocity: z.string(),
       chainId: z.number(),
     }),
+    z.object({
+      rpcUrl: z.string(),
+      root: z.string(),
+      chainId: z.number(),
+    }),
   ]),
   at: z.string(),
   binding: z.enum(["held-genesis", "explicit"]).optional(),
+  chainFrom: z.literal("held-genesis").optional(),
+  block: z
+    .object({ blockNumber: z.number(), blockHash: z.string() })
+    .optional(),
   history: HistoryProvenanceSchema.optional(),
 });
 
@@ -530,6 +546,45 @@ export const fetchCheckpointHistoryOutputShape = {
       univocity: z.string(),
       chainId: z.number(),
       logId: z.string(),
+    })
+    .optional(),
+  provenance: ProvenanceSchema.optional(),
+  supports: SupportsSchema,
+  problem: ProblemSchema.optional(),
+};
+
+export const fetchKs256AttestationInputShape = {
+  receipt: bytesInput(
+    "the receipt bytes; its delegation certificate supplies the digest and signature the contract is asked about",
+  ),
+  root: AddressSchema.optional().describe(
+    "the contract root's 0x-prefixed or bare 40-hex address; give this or genesis (with both, root is the contract asked and genesis supplies only the expected chain)",
+  ),
+  genesis: bytesInput(
+    "a genesis document you hold: its chain id is the chain the RPC must be on, and its KS256 bootstrap root is the contract asked when root is absent",
+  ).optional(),
+  rpcUrl: RpcUrlSchema.optional(),
+  block: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe(
+      "the block to ask at; default the latest block, whose number every call is then pinned to",
+    ),
+};
+export const fetchKs256AttestationOutputShape = {
+  /** The canonical-CBOR attestation, for mcp-verify's `ks256Attestation`. */
+  attestation: BytesSummarySchema.optional(),
+  fields: z
+    .object({
+      chainId: z.string(),
+      address: z.string(),
+      digest: z.string(),
+      signatureHash: z.string(),
+      blockNumber: z.string(),
+      blockHash: z.string(),
+      magic: z.string(),
     })
     .optional(),
   provenance: ProvenanceSchema.optional(),
@@ -748,6 +803,13 @@ async function guardHandler(
     }
     if (err instanceof NetError) {
       return problemResult(toolName, { code: err.code, message: err.message });
+    }
+    // A value the RPC returned that does not parse is the endpoint's fault.
+    if (err instanceof ChainError) {
+      return problemResult(toolName, {
+        code: "rpc_error",
+        message: err.message,
+      });
     }
     throw err;
   }
@@ -2052,6 +2114,136 @@ async function handleVerifyFetchedReceipt(
   });
 }
 
+async function handleFetchKs256Attestation(
+  args: {
+    receipt: BytesInput;
+    root?: string | undefined;
+    genesis?: BytesInput | undefined;
+    rpcUrl?: string | undefined;
+    block?: number | undefined;
+  },
+  deps: ResolvedDeps,
+): Promise<ToolResult> {
+  const tool = "fetch_ks256_attestation";
+  if (args.root === undefined && args.genesis === undefined) {
+    return problemResult(tool, {
+      code: "missing_input",
+      message:
+        "the contract root is required: pass root (a 0x 20-byte address) or genesis (a genesis document you hold whose bootstrap root is a KS256 address)",
+    });
+  }
+  const rpcUrl = resolveRpcUrl(args.rpcUrl, deps);
+  if (rpcUrl === undefined) {
+    return missingInput(tool, "rpcUrl", "FORESTRIE_RPC_URL");
+  }
+
+  // Everything that can be refused from the inputs alone is refused before
+  // any chain request.
+  const receiptBytes = resolveBytes(args.receipt, "receipt");
+  let expectedChainId: number | undefined;
+  let rootAddress: string | undefined =
+    args.root !== undefined ? normalizeAddress(args.root) : undefined;
+  let rootFromGenesis = false;
+  if (args.genesis !== undefined) {
+    const genesisBytes = resolveBytes(args.genesis, "genesis");
+    expectedChainId = decodeChainBindingFromGenesis(genesisBytes).chainId;
+    if (rootAddress === undefined) {
+      let key: unknown;
+      try {
+        key = (await decodeTrustRootDetailsFromGenesis(genesisBytes)).key;
+      } catch (err) {
+        throw new GenesisBindingError(
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      const address = (key as { kind?: unknown; address?: unknown }).address;
+      if (
+        (key as { kind?: unknown }).kind !== "KS256" ||
+        !(address instanceof Uint8Array)
+      ) {
+        return problemResult(tool, {
+          code: "genesis_root_not_ks256",
+          message:
+            "the genesis bootstrap root is not a KS256 address (an ES256 root verifies offline and has no contract to ask); pass root to name the contract",
+        });
+      }
+      rootAddress = `0x${Buffer.from(address).toString("hex")}`;
+      rootFromGenesis = true;
+    }
+  }
+  if (rootAddress === undefined) {
+    throw new Error("unreachable: root resolved from root or genesis");
+  }
+
+  let cert;
+  try {
+    cert = extractKs256DelegationDigest(receiptBytes);
+  } catch (err) {
+    return problemResult(tool, {
+      code: "receipt_not_ks256",
+      message: `the receipt's delegation certificate is not a KS256 certificate: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    });
+  }
+  if (cert === null) {
+    return problemResult(tool, {
+      code: "no_delegation_certificate",
+      message: "receipt carries no delegation certificate",
+    });
+  }
+
+  const read = await readKs256Attestation(
+    {
+      rpcUrl,
+      root: rootAddress,
+      digest: cert.digest,
+      signature: cert.signature,
+      ...(expectedChainId !== undefined ? { expectedChainId } : {}),
+      ...(args.block !== undefined ? { block: BigInt(args.block) } : {}),
+    },
+    { fetchImpl: deps.fetchImpl },
+  );
+  if (read.kind === "problem") {
+    return problemResult(tool, { ...read.problem });
+  }
+
+  const { bytes, fields } = buildKs256Attestation({
+    chainId: read.chainId,
+    address: new Uint8Array(Buffer.from(rootAddress.slice(2), "hex")),
+    digest: cert.digest,
+    signature: cert.signature,
+    blockNumber: read.blockNumber,
+    blockHash: read.blockHash,
+    magic: read.magic,
+  });
+  const provenance: Provenance = {
+    source: "chain-read",
+    from: { rpcUrl, root: rootAddress, chainId: Number(read.chainId) },
+    at: read.at,
+    // "held-genesis" only when the root asked IS the genesis's bootstrap
+    // root. A caller-supplied root is "explicit" even beside a genesis,
+    // which then supplied the expected chain alone (`chainFrom`).
+    binding: rootFromGenesis ? "held-genesis" : "explicit",
+    ...(expectedChainId !== undefined && !rootFromGenesis
+      ? { chainFrom: "held-genesis" as const }
+      : {}),
+    block: {
+      blockNumber: Number(read.blockNumber),
+      blockHash: read.blockHash,
+    },
+  };
+  return ok(
+    `${rootAddress} on chain ${read.chainId} returned the ERC-1271 magic value for the receipt's delegation certificate at block ${read.blockNumber}: valid under the contract's signers at block ${read.blockNumber}. Pass the attestation to verify_receipt in @forestrie/mcp-verify as ks256Attestation; the verifier makes no chain read.`,
+    {
+      attestation: bytesSummary(bytes),
+      fields,
+      provenance,
+      supports: SUPPORTS.fetch_ks256_attestation,
+    },
+  );
+}
+
 /* -------------------------------- exports --------------------------------- */
 
 /**
@@ -2108,6 +2300,19 @@ export function makeFetchCheckpointHistoryTool(deps: ResolvedDeps) {
   return (args: { chain: ChainWire & { logId: string } }) =>
     guardHandler("fetch_checkpoint_history", () =>
       handleFetchCheckpointHistory({ chain: chainFromWire(args.chain) }, deps),
+    );
+}
+
+export function makeFetchKs256AttestationTool(deps: ResolvedDeps) {
+  return (args: {
+    receipt: BytesInput;
+    root?: string | undefined;
+    genesis?: BytesInput | undefined;
+    rpcUrl?: string | undefined;
+    block?: number | undefined;
+  }) =>
+    guardHandler("fetch_ks256_attestation", () =>
+      handleFetchKs256Attestation(args, deps),
     );
 }
 

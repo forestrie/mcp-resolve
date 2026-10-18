@@ -52,6 +52,7 @@ const TOOL_NAMES: ToolName[] = [
   "fetch_genesis",
   "fetch_accumulator",
   "fetch_checkpoint_history",
+  "fetch_ks256_attestation",
   "verify_fetched_receipt",
 ];
 
@@ -121,7 +122,7 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("is exactly the seven tools, each annotated, with a non-empty description", async () => {
+  it("is exactly the eight tools, each annotated, with a non-empty description", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
 

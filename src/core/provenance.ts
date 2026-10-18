@@ -29,9 +29,18 @@ export type HistoryProvenance = {
 
 export type Provenance = {
   source: ProvenanceSource;
-  from: string | { rpcUrl: string; univocity: string; chainId: number };
+  from:
+    | string
+    | { rpcUrl: string; univocity: string; chainId: number }
+    | { rpcUrl: string; root: string; chainId: number };
   at: string;
   binding?: "held-genesis" | "explicit";
+  /** `fetch_ks256_attestation` only: set when the root asked was supplied by
+   *  the caller (`binding: "explicit"`) and a held genesis supplied the
+   *  expected chain alone. */
+  chainFrom?: "held-genesis";
+  /** `fetch_ks256_attestation` only: the block every read was pinned to. */
+  block?: { blockNumber: number; blockHash: string };
   history?: HistoryProvenance;
 };
 
@@ -57,6 +66,7 @@ export type ToolName =
   | "fetch_genesis"
   | "fetch_accumulator"
   | "fetch_checkpoint_history"
+  | "fetch_ks256_attestation"
   | "verify_fetched_receipt";
 
 /** The vocabulary is trust roots and the four questions, never a ranking
@@ -86,6 +96,10 @@ export const SUPPORTS: Record<ToolName, Supports> = {
       { question: "append-authority", root: "known-accumulator" },
     ],
     note: "split-view against the chain rather than the operator; sealing and append-authority by inheritance from the contract's publish-time checks, stated as inheritance, never as a local signature check; a kept checkpoint answers split-view later, without another chain read, for any receipt whose peak it contains",
+  },
+  fetch_ks256_attestation: {
+    rows: [],
+    note: "the contract root's own ERC-1271 answer at one block, read from the chain: valid under the contract's signers at that block, not a local signature check; it answers no question until @forestrie/mcp-verify consumes it as ks256Attestation under a genesis or known-log-key root you hold",
   },
   fetch_scitt_configuration: {
     rows: [],
