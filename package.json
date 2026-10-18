@@ -1,6 +1,6 @@
 {
   "name": "@forestrie/mcp-resolve",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "mcpName": "dev.forestrie/resolve",
   "license": "MIT",
   "type": "module",
