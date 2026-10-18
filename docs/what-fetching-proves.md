@@ -161,7 +161,7 @@ signers approved. This tool puts the question to the contract. It takes the
 digest and signature out of the receipt's certificate and makes one
 `eth_call` of `isValidSignature(digest, signature)` at a block, after
 `eth_chainId`, `eth_getBlockByNumber` and `eth_getCode`, every state read
-pinned to that block's number. The answer, with the chain id, root address,
+pinned by that block's hash (EIP-1898, `requireCanonical`), so the block hash the attestation names is the state that was read. The answer, with the chain id, root address,
 digest, a hash of the signature, the block number and block hash, comes back
 as canonical CBOR for `verify_receipt`'s `ks256Attestation` input.
 
@@ -175,8 +175,7 @@ id must equal the genesis chain, and the verifier checks the same again.
 
 The tool refuses, with a structured problem and never an attestation, when
 the root has no contract code at the block (an externally owned root needs
-no attestation), when the call reverts, and when it returns anything but the
-ERC-1271 magic value.
+no attestation), when the call reverts, and when the return is anything but exactly one 32-byte word, `0x1626ba7e` followed by 28 zero bytes (a short return, dirty padding, extra words and an echo of the call's own data are all refused). A chain id, block number or block hash from the RPC that is not well-formed is an `rpc_error` problem. With `root` given beside a genesis, `root` is the contract asked and the genesis supplies only the expected chain: `provenance.binding` is `explicit` and `chainFrom` is `held-genesis`; `binding` is `held-genesis` only when the root came from the genesis.
 
 ### `fetch_scitt_configuration` — supports none of the four questions
 

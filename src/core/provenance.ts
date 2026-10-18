@@ -35,6 +35,10 @@ export type Provenance = {
     | { rpcUrl: string; root: string; chainId: number };
   at: string;
   binding?: "held-genesis" | "explicit";
+  /** `fetch_ks256_attestation` only: set when the root asked was supplied by
+   *  the caller (`binding: "explicit"`) and a held genesis supplied the
+   *  expected chain alone. */
+  chainFrom?: "held-genesis";
   /** `fetch_ks256_attestation` only: the block every read was pinned to. */
   block?: { blockNumber: number; blockHash: string };
   history?: HistoryProvenance;

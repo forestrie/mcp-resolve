@@ -28,6 +28,7 @@ import {
   EndpointError,
   GenesisBindingError,
   GrantLeafInputError,
+  ChainError,
   SUPPORTS,
   buildKs256Attestation,
   classify,
@@ -393,6 +394,7 @@ const ProvenanceSchema = z.looseObject({
   ]),
   at: z.string(),
   binding: z.enum(["held-genesis", "explicit"]).optional(),
+  chainFrom: z.literal("held-genesis").optional(),
   block: z
     .object({ blockNumber: z.number(), blockHash: z.string() })
     .optional(),
@@ -801,6 +803,13 @@ async function guardHandler(
     }
     if (err instanceof NetError) {
       return problemResult(toolName, { code: err.code, message: err.message });
+    }
+    // A value the RPC returned that does not parse is the endpoint's fault.
+    if (err instanceof ChainError) {
+      return problemResult(toolName, {
+        code: "rpc_error",
+        message: err.message,
+      });
     }
     throw err;
   }
@@ -2134,6 +2143,7 @@ async function handleFetchKs256Attestation(
   let expectedChainId: number | undefined;
   let rootAddress: string | undefined =
     args.root !== undefined ? normalizeAddress(args.root) : undefined;
+  let rootFromGenesis = false;
   if (args.genesis !== undefined) {
     const genesisBytes = resolveBytes(args.genesis, "genesis");
     expectedChainId = decodeChainBindingFromGenesis(genesisBytes).chainId;
@@ -2158,6 +2168,7 @@ async function handleFetchKs256Attestation(
         });
       }
       rootAddress = `0x${Buffer.from(address).toString("hex")}`;
+      rootFromGenesis = true;
     }
   }
   if (rootAddress === undefined) {
@@ -2198,7 +2209,7 @@ async function handleFetchKs256Attestation(
   }
 
   const { bytes, fields } = buildKs256Attestation({
-    chainId: BigInt(read.chainId),
+    chainId: read.chainId,
     address: new Uint8Array(Buffer.from(rootAddress.slice(2), "hex")),
     digest: cert.digest,
     signature: cert.signature,
@@ -2208,9 +2219,15 @@ async function handleFetchKs256Attestation(
   });
   const provenance: Provenance = {
     source: "chain-read",
-    from: { rpcUrl, root: rootAddress, chainId: read.chainId },
+    from: { rpcUrl, root: rootAddress, chainId: Number(read.chainId) },
     at: read.at,
-    binding: expectedChainId !== undefined ? "held-genesis" : "explicit",
+    // "held-genesis" only when the root asked IS the genesis's bootstrap
+    // root. A caller-supplied root is "explicit" even beside a genesis,
+    // which then supplied the expected chain alone (`chainFrom`).
+    binding: rootFromGenesis ? "held-genesis" : "explicit",
+    ...(expectedChainId !== undefined && !rootFromGenesis
+      ? { chainFrom: "held-genesis" as const }
+      : {}),
     block: {
       blockNumber: Number(read.blockNumber),
       blockHash: read.blockHash,

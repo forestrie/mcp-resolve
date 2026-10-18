@@ -1,9 +1,9 @@
 /**
  * The `fetch_ks256_attestation` chain read: `eth_chainId`, then
  * `eth_getBlockByNumber` for the chosen block, then `eth_getCode` at the
- * root and `eth_call isValidSignature(digest, signature)` at that block's
- * number. Every state read is pinned to the block whose number and hash the
- * attestation names, so anyone with RPC can re-run exactly that call.
+ * root and `eth_call isValidSignature(digest, signature)`, both pinned by
+ * block HASH (EIP-1898, `requireCanonical`), so the hash the attestation
+ * names is the state that was read and anyone with RPC can re-run the call.
  *
  * Refusals are structured problems, never an attestation: an EOA root (no
  * code; it verifies by ecrecover and needs none), a revert, a short or
@@ -11,7 +11,7 @@
  * `NetError` is thrown only when no response was obtained at all.
  */
 import { encodeIsValidSignatureCall } from "@forestrie/chain-rpc";
-import { erc1271MagicFromReturn, hexToBigint } from "../core/index.js";
+import { erc1271MagicFromReturn } from "../core/index.js";
 import { callJsonRpc, type LogStateProblem } from "./chain.js";
 import type { FetchOptions } from "./types.js";
 
@@ -37,7 +37,7 @@ export type Ks256Problem =
 export type ReadKs256AttestationResult =
   | {
       kind: "ok";
-      chainId: number;
+      chainId: bigint;
       blockNumber: bigint;
       blockHash: string;
       magic: Uint8Array;
@@ -60,6 +60,14 @@ function rpcProblem(
   };
 }
 
+/** A JSON-RPC quantity: `0x` and at least one hex digit. No decimal, no
+ *  bare `0x`, never silently coerced. */
+function quantity(value: unknown): bigint | undefined {
+  return typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value)
+    ? BigInt(value)
+    : undefined;
+}
+
 export async function readKs256Attestation(
   input: ReadKs256AttestationInput,
   opts?: FetchOptions,
@@ -72,20 +80,23 @@ export async function readKs256Attestation(
     opts,
   );
   if (!chainIdCall.ok) return chainIdCall.result;
-  if (typeof chainIdCall.result !== "string") {
-    return rpcProblem(undefined, "eth_chainId result is not a hex string");
+  const chainId = quantity(chainIdCall.result);
+  if (chainId === undefined) {
+    return rpcProblem(
+      undefined,
+      `eth_chainId result is not a hex quantity: ${JSON.stringify(chainIdCall.result)}`,
+    );
   }
-  const chainId = Number(hexToBigint(chainIdCall.result));
   if (
     input.expectedChainId !== undefined &&
-    chainId !== input.expectedChainId
+    chainId !== BigInt(input.expectedChainId)
   ) {
     return {
       kind: "problem",
       problem: {
         code: "rpc_chain_id_mismatch",
         expected: input.expectedChainId,
-        actual: chainId,
+        actual: Number(chainId),
       },
     };
   }
@@ -110,27 +121,31 @@ export async function readKs256Attestation(
     };
   }
   const block = blockCall.result as { number?: unknown; hash?: unknown };
-  if (typeof block.number !== "string" || typeof block.hash !== "string") {
+  const blockNumber = quantity(block.number);
+  if (
+    blockNumber === undefined ||
+    typeof block.hash !== "string" ||
+    !/^0x[0-9a-fA-F]{64}$/.test(block.hash)
+  ) {
     return rpcProblem(
       undefined,
-      "eth_getBlockByNumber result missing number/hash",
+      "eth_getBlockByNumber result needs a hex quantity number and a 32-byte hex hash",
     );
   }
-  const blockNumber = hexToBigint(block.number);
   if (input.block !== undefined && blockNumber !== input.block) {
     return rpcProblem(
       undefined,
       `eth_getBlockByNumber returned block ${blockNumber}, not the ${input.block} asked for`,
     );
   }
-  // Pin to the number the block reported, whether it was asked for or latest.
-  const blockHex = block.number;
+  // Pin by the hash the attestation will name (EIP-1898).
+  const at = { blockHash: block.hash, requireCanonical: true };
 
   const codeCall = await callJsonRpc(
     input.rpcUrl,
     3,
     "eth_getCode",
-    [input.root, blockHex],
+    [input.root, at],
     opts,
   );
   if (!codeCall.ok) return codeCall.result;
@@ -156,20 +171,21 @@ export async function readKs256Attestation(
         to: input.root,
         data: encodeIsValidSignatureCall(input.digest, input.signature),
       },
-      blockHex,
+      at,
     ],
     opts,
   );
   if (!call.ok) {
     const failure = call.result.problem;
-    // A node that answered 2xx with a JSON-RPC error is reporting the call
-    // itself failing (a revert); anything else is the endpoint, not the contract.
-    if (failure.code === "rpc_error" && failure.status === 200) {
+    // `ethRpc` keeps only the JSON-RPC error's message, so a revert is
+    // recognised by it; any other error (unknown block, header not found,
+    // an endpoint refusing) is the endpoint's, not the contract's.
+    if (failure.code === "rpc_error" && /revert/i.test(failure.message)) {
       return {
         kind: "problem",
         problem: {
           code: "erc1271_call_failed",
-          message: `isValidSignature at ${input.root} failed at block ${blockNumber}: ${failure.message}`,
+          message: `isValidSignature at ${input.root} reverted at block ${blockNumber}: ${failure.message}`,
         },
       };
     }
@@ -184,7 +200,7 @@ export async function readKs256Attestation(
       kind: "problem",
       problem: {
         code: "erc1271_not_valid",
-        message: `isValidSignature at ${input.root} did not return the ERC-1271 magic value 0x1626ba7e at block ${blockNumber} (returned ${call.result}): the certificate's signature is not valid under the contract's signers there`,
+        message: `isValidSignature at ${input.root} did not return exactly the one 32-byte word 0x1626ba7e followed by 28 zero bytes at block ${blockNumber} (returned ${call.result}): the certificate's signature is not valid under the contract's signers there`,
       },
     };
   }

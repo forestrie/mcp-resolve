@@ -15,20 +15,23 @@ import {
 import { keccak_256 } from "@noble/hashes/sha3";
 import { hexToBytes32, hexToBytesRaw, stripHexPrefix } from "./chain.js";
 
-/** The first four bytes of an `isValidSignature` return word, if it is the
- *  ERC-1271 magic value `0x1626ba7e`; otherwise `undefined`. A short,
- *  malformed or non-magic return is never an attestation. */
+/** The ERC-1271 magic value, if `returnHex` is exactly one 32-byte ABI
+ *  word equal to `0x1626ba7e` followed by 28 zero bytes (what a `bytes4`
+ *  return is, and OpenZeppelin SignatureChecker's own test: length 32 and
+ *  word == magic). Anything else is `undefined`: a short return, dirty
+ *  padding, extra words, odd-length hex, or the call's own calldata echoed
+ *  back by a fallback (`0x1626ba7e` is also the selector). */
 export function erc1271MagicFromReturn(
   returnHex: string,
 ): Uint8Array | undefined {
-  const hex = stripHexPrefix(returnHex.trim());
-  // ABI return of `bytes4` is one 32-byte word, left-aligned.
-  if (hex.length < 8 || !/^[0-9a-fA-F]+$/.test(hex)) return undefined;
-  const head = hexToBytesRaw(hex.slice(0, 8));
-  for (let i = 0; i < ERC1271_MAGIC_VALUE.length; i++) {
-    if (head[i] !== ERC1271_MAGIC_VALUE[i]) return undefined;
+  const hex = stripHexPrefix(returnHex.trim()).toLowerCase();
+  if (hex.length !== 64 || !/^[0-9a-f]+$/.test(hex)) return undefined;
+  const word = hexToBytesRaw(hex);
+  for (let i = 0; i < word.length; i++) {
+    const want = i < ERC1271_MAGIC_VALUE.length ? ERC1271_MAGIC_VALUE[i] : 0;
+    if (word[i] !== want) return undefined;
   }
-  return head;
+  return word.slice(0, ERC1271_MAGIC_VALUE.length);
 }
 
 export type Ks256AttestationFields = {

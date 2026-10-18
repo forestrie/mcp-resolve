@@ -113,9 +113,14 @@ function buildGenesis(
 type Call = { method: string; params: unknown[] };
 type Behaviour = {
   chainId?: number;
+  /** Replaces the eth_chainId result verbatim (e.g. decimal "84532"). */
+  chainIdResult?: unknown;
+  /** Replaces eth_getBlockByNumber's block, given the tag asked for. */
+  block?: (tag: string) => unknown;
   code?: string;
   /** What eth_call answers: a result word, or a JSON-RPC error message. */
-  call?: { result: string } | { error: string };
+  call?:
+    { result: string } | { error: string; code?: number } | { echo: true };
 };
 
 const blockHash = (n: bigint): string =>
@@ -149,21 +154,29 @@ function fakeChain(behaviour: Behaviour = {}): {
     switch (body.method) {
       case "eth_chainId":
         return reply({
-          result: `0x${(behaviour.chainId ?? CHAIN_ID).toString(16)}`,
+          result:
+            behaviour.chainIdResult ??
+            `0x${(behaviour.chainId ?? CHAIN_ID).toString(16)}`,
         });
       case "eth_getBlockByNumber": {
         const tag = body.params[0] as string;
         const n = tag === "latest" ? LATEST : BigInt(tag);
         return reply({
-          result: { number: `0x${n.toString(16)}`, hash: blockHash(n) },
+          result: behaviour.block
+            ? behaviour.block(tag)
+            : { number: `0x${n.toString(16)}`, hash: blockHash(n) },
         });
       }
       case "eth_getCode":
         return reply({ result: behaviour.code ?? "0x6080604052" });
       case "eth_call": {
         const call = behaviour.call ?? { result: MAGIC_WORD };
+        if ("echo" in call) {
+          const tx = body.params[0] as { data: string };
+          return reply({ result: tx.data });
+        }
         return "error" in call
-          ? reply({ error: { code: 3, message: call.error } })
+          ? reply({ error: { code: call.code ?? 3, message: call.error } })
           : reply({ result: call.result });
       }
       default:
@@ -271,10 +284,12 @@ describe("fetch_ks256_attestation", () => {
       "eth_call",
     ]);
     expect(calls[1]!.params).toEqual(["0x7b", false]);
-    expect(calls[2]!.params).toEqual([ROOT_HEX, "0x7b"]);
+    // State reads are pinned by the block HASH, not the number.
+    const pin = { blockHash: blockHash(123n), requireCanonical: true };
+    expect(calls[2]!.params).toEqual([ROOT_HEX, pin]);
     expect(calls[3]!.params).toEqual([
       { to: ROOT_HEX, data: encodeIsValidSignatureCall(digest, signature) },
-      "0x7b",
+      pin,
     ]);
   });
 
@@ -286,10 +301,10 @@ describe("fetch_ks256_attestation", () => {
       rpcUrl: RPC_URL,
     });
     expect(structured["fields"].blockNumber).toBe(String(LATEST));
-    const latestHex = `0x${LATEST.toString(16)}`;
+    const pin = { blockHash: blockHash(LATEST), requireCanonical: true };
     expect(calls[1]!.params).toEqual(["latest", false]);
-    expect(calls[2]!.params[1]).toBe(latestHex);
-    expect(calls[3]!.params[1]).toBe(latestHex);
+    expect(calls[2]!.params[1]).toEqual(pin);
+    expect(calls[3]!.params[1]).toEqual(pin);
   });
 
   it("takes the root and the chain from a KS256 genesis, and rpcUrl from the environment", async () => {
@@ -320,7 +335,7 @@ describe("fetch_ks256_attestation", () => {
   });
 
   it("refuses when there is no contract code at the root (an EOA)", async () => {
-    for (const code of ["0x", "0x0"]) {
+    for (const code of ["0x", "0x0", "0x00"]) {
       const { deps, calls } = fakeChain({ code });
       const { structured } = await callTool(deps, {
         receipt: b64(receipt),
@@ -343,6 +358,14 @@ describe("fetch_ks256_attestation", () => {
       "0x",
       "0x1626ba",
       "not hex",
+      // exactly the selector, no padding word
+      "0x1626ba7e",
+      // dirty padding
+      `0x1626ba7e${"00".repeat(27)}01`,
+      // the magic word plus an extra word
+      `${MAGIC_WORD}${"00".repeat(32)}`,
+      // odd length
+      `${MAGIC_WORD}0`,
     ]) {
       const { deps } = fakeChain({ call: { result } });
       const { structured } = await callTool(deps, {
@@ -366,6 +389,88 @@ describe("fetch_ks256_attestation", () => {
     expect(structured["attestation"]).toBeUndefined();
     expect(structured["problem"].code).toBe("erc1271_call_failed");
     expect(structured["problem"].message).toContain("execution reverted");
+  });
+
+  it("refuses a calldata-echoing fallback (the selector is the magic value)", async () => {
+    const { deps } = fakeChain({ call: { echo: true } });
+    const { structured } = await callTool(deps, {
+      receipt: b64(receipt),
+      root: ROOT_HEX,
+      rpcUrl: RPC_URL,
+    });
+    expect(structured["attestation"]).toBeUndefined();
+    expect(structured["problem"].code).toBe("erc1271_not_valid");
+  });
+
+  it("an eth_call error that is not a revert is an rpc_error, not the contract's answer", async () => {
+    for (const error of ["header not found", "unknown block"]) {
+      const { deps } = fakeChain({ call: { error, code: -32000 } });
+      const { structured } = await callTool(deps, {
+        receipt: b64(receipt),
+        root: ROOT_HEX,
+        rpcUrl: RPC_URL,
+      });
+      expect(structured["attestation"]).toBeUndefined();
+      expect(structured["problem"].code).toBe("rpc_error");
+    }
+  });
+
+  it("malformed RPC values are rpc_error problems, never a tool error", async () => {
+    const bad: Behaviour[] = [
+      { chainIdResult: "84532" },
+      { chainIdResult: "0x" },
+      { chainIdResult: 84532 },
+      { block: () => ({ number: "0x1", hash: "0x1234" }) },
+      { block: () => ({ number: "0x1", hash: `0x${"ab".repeat(33)}` }) },
+      { block: () => ({ number: "zz", hash: blockHash(1n) }) },
+      { block: () => ({ number: "123", hash: blockHash(1n) }) },
+    ];
+    for (const behaviour of bad) {
+      const { deps } = fakeChain(behaviour);
+      const { structured } = await callTool(deps, {
+        receipt: b64(receipt),
+        root: ROOT_HEX,
+        rpcUrl: RPC_URL,
+      });
+      expect(structured["attestation"]).toBeUndefined();
+      expect(structured["problem"].code).toBe("rpc_error");
+    }
+  });
+
+  it("refuses when the RPC returns a different block than asked for", async () => {
+    const { deps, calls } = fakeChain({
+      block: () => ({ number: "0x7c", hash: blockHash(124n) }),
+    });
+    const { structured } = await callTool(deps, {
+      receipt: b64(receipt),
+      root: ROOT_HEX,
+      rpcUrl: RPC_URL,
+      block: 123,
+    });
+    expect(structured["attestation"]).toBeUndefined();
+    expect(structured["problem"].code).toBe("rpc_error");
+    expect(structured["problem"].message).toContain("not the 123 asked for");
+    expect(calls.map((c) => c.method)).toEqual([
+      "eth_chainId",
+      "eth_getBlockByNumber",
+    ]);
+  });
+
+  it("with root beside a genesis, binding is explicit and the genesis is the chain only", async () => {
+    const { deps } = fakeChain();
+    const other = buildGenesis({
+      alg: COSE_ALG_KS256,
+      key: new Uint8Array(20).fill(0x99),
+    });
+    const { structured } = await callTool(deps, {
+      receipt: b64(receipt),
+      root: ROOT_HEX,
+      genesis: b64(other),
+      rpcUrl: RPC_URL,
+    });
+    expect(structured["fields"].address).toBe(ROOT_HEX);
+    expect(structured["provenance"].binding).toBe("explicit");
+    expect(structured["provenance"].chainFrom).toBe("held-genesis");
   });
 
   it("refuses a receipt with no delegation certificate, before any chain call", async () => {

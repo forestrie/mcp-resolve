@@ -172,9 +172,7 @@ verify_receipt           {receipt: …, …, ks256Attestation: {b64: <attestatio
 
 The result says the certificate is valid under the contract's signers _at
 that block_, and anyone with RPC can re-run the call to confirm it. It
-refuses, and returns no attestation, for a root with no contract code (an
-externally owned root needs none), a reverting call, or any answer but the
-ERC-1271 magic value, and for an RPC on a different chain from your genesis.
+refuses, and returns no attestation, for a root with no contract code (an externally owned root needs none), a reverting call, or any answer but exactly one 32-byte word, `0x1626ba7e` followed by 28 zero bytes (a short return, dirty padding, extra words or an echo of the call's own data are refused), and for an RPC on a different chain from your genesis. Both state reads are pinned by the block's hash (EIP-1898), so the hash in the attestation is the state that was read. With `root` given beside a genesis, `root` is the contract asked and the genesis supplies only the expected chain.
 
 Every tool is annotated read-only, idempotent and open-world, because every
 one of them talks to something outside your process. What each `supports`
