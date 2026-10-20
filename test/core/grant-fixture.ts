@@ -14,7 +14,12 @@ import {
   encodeGrantPayloadV0Canonical,
   type Grant,
 } from "@forestrie/encoding";
-import { encodeKnownAccumulator } from "@forestrie/receipt-verify";
+import { indexHeight } from "@forestrie/merklelog";
+import {
+  encodeKnownAccumulator,
+  parseReceipt,
+  peakMMRIndexes,
+} from "@forestrie/receipt-verify";
 import { toContractLogId } from "../../src/core/index.js";
 
 const repoRoot = new URL("../../", import.meta.url).pathname;
@@ -82,19 +87,51 @@ export function goldenEntryId(): string {
 
 export const RECEIPT = () => readFixture("golden/grant-receipt.cbor");
 
+/**
+ * The MMR index of the node an inclusion path of `pathLength` siblings
+ * reaches from `leafMmrIndex` — the peak the receipt's path proves. Mirrors
+ * `inclusionWalkEndIndex` in @forestrie/receipt-verify (not exported), which
+ * mirrors merklelog's `calculateRoot` position arithmetic.
+ */
+function inclusionWalkEnd(leafMmrIndex: bigint, pathLength: number): bigint {
+  let h = indexHeight(leafMmrIndex);
+  let pos = leafMmrIndex + 1n;
+  for (let i = 0; i < pathLength; i++) {
+    pos += indexHeight(pos) > h ? 1n : 2n << BigInt(h);
+    h += 1;
+  }
+  return pos - 1n;
+}
+
 /** A SYNTHETIC known-accumulator snapshot binding (chainId 84532n — Base
  *  Sepolia, matching the rest of this package's fixtures; 20 zero bytes
  *  for univocity; the golden manifest's log id as bytes32 via
  *  `toContractLogId`; blockNumber 1n; 32 zero bytes for blockHash) around
- *  whatever peak/size the test derives — not a real chain read. */
-export function knownAccumulatorSnapshot(peak: Uint8Array, leafIndex: bigint) {
+ *  whatever peak the test derives — not a real chain read.
+ *
+ *  The accumulator is a VALID MMR shape: receipt-verify ≥3.2.0 binds a
+ *  matched peak's position, so the snapshot's size is the node the
+ *  receipt's inclusion walk reaches plus one (that node is always a peak of
+ *  that size), `peak` sits at its position, and every other position holds
+ *  a distinct dummy value. */
+export function knownAccumulatorSnapshot(
+  peak: Uint8Array,
+  receipt: Uint8Array,
+) {
+  const { proof } = parseReceipt(receipt);
+  const leafMmrIndex = proof.mmrIndex ?? proof.leafIndex ?? 0n;
+  const node = inclusionWalkEnd(leafMmrIndex, proof.path.length);
+  const size = node + 1n;
+  const accumulator = peakMMRIndexes(size - 1n).map((i) =>
+    i === node ? peak : new Uint8Array(32).fill(Number(i % 251n) + 1),
+  );
   return encodeKnownAccumulator({
     version: 1,
     chainId: 84532n,
     univocity: new Uint8Array(20),
     logId: fromHex(toContractLogId(GOLDEN_MANIFEST.logId)),
-    size: leafIndex + 1n,
-    accumulator: [peak],
+    size,
+    accumulator,
     blockNumber: 1n,
     blockHash: new Uint8Array(32),
   });
