@@ -50,7 +50,7 @@ describe("grantLeafInputs — cross-check against the verifier", () => {
       committedGrant,
       entryId,
     );
-    const { peak, leafIndex } = await recomputeReceiptPeak({
+    const { peak } = await recomputeReceiptPeak({
       receiptCbor: receipt,
       idtimestampBe8,
       inner,
@@ -58,7 +58,7 @@ describe("grantLeafInputs — cross-check against the verifier", () => {
 
     const trust: TrustRoot = {
       root: "known-accumulator",
-      accumulator: knownAccumulatorSnapshot(peak, leafIndex),
+      accumulator: knownAccumulatorSnapshot(peak, receipt),
     };
     const ok = await verifyGrantReceipt({
       receipt,
@@ -73,7 +73,7 @@ describe("grantLeafInputs — cross-check against the verifier", () => {
     tamperedPeak[lastIndex] = (tamperedPeak[lastIndex] ?? 0) ^ 0xff;
     const tamperedTrust: TrustRoot = {
       root: "known-accumulator",
-      accumulator: knownAccumulatorSnapshot(tamperedPeak, leafIndex),
+      accumulator: knownAccumulatorSnapshot(tamperedPeak, receipt),
     };
     const bad = await verifyGrantReceipt({
       receipt,
@@ -199,7 +199,7 @@ describe("grantLeafInputs — COSE branch (synthetic, honestly-signed fixture)",
     const committedGrant = readGrantCoseFixture();
 
     const { idtimestampBe8, inner } = await grantLeafInputs(committedGrant);
-    const { peak, leafIndex } = await recomputeReceiptPeak({
+    const { peak } = await recomputeReceiptPeak({
       receiptCbor: receipt,
       idtimestampBe8,
       inner,
@@ -207,7 +207,7 @@ describe("grantLeafInputs — COSE branch (synthetic, honestly-signed fixture)",
 
     const trust: TrustRoot = {
       root: "known-accumulator",
-      accumulator: knownAccumulatorSnapshot(peak, leafIndex),
+      accumulator: knownAccumulatorSnapshot(peak, receipt),
     };
     const ok = await verifyGrantReceipt({
       receipt,
@@ -221,7 +221,7 @@ describe("grantLeafInputs — COSE branch (synthetic, honestly-signed fixture)",
     tamperedPeak[lastIndex] = (tamperedPeak[lastIndex] ?? 0) ^ 0xff;
     const tamperedTrust: TrustRoot = {
       root: "known-accumulator",
-      accumulator: knownAccumulatorSnapshot(tamperedPeak, leafIndex),
+      accumulator: knownAccumulatorSnapshot(tamperedPeak, receipt),
     };
     const bad = await verifyGrantReceipt({
       receipt,
