@@ -25,7 +25,7 @@ export const CHAIN_RPC_VERSION = "0.3.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/scrapi-client"].
  *  Asserted by test/core/version.test.ts. */
-export const SCRAPI_CLIENT_VERSION = "0.2.4";
+export const SCRAPI_CLIENT_VERSION = "0.2.5";
 
 /** Keep in sync with package.json#dependencies["@forestrie/receipt-verify"]
  *  (for encodeKnownAccumulator, the FOREST_GENESIS_LABEL_* constants,

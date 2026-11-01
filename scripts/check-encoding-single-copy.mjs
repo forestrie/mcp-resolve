@@ -41,7 +41,7 @@ const MAX_DEPTH = 12;
 // name -> expected exact pin
 const EXPECTED = {
   "@forestrie/encoding": "0.10.0",
-  "@forestrie/scrapi-client": "0.2.4",
+  "@forestrie/scrapi-client": "0.2.5",
   "@forestrie/receipt-verify": "3.3.0",
   "@forestrie/chain-rpc": "0.3.0",
   "@forestrie/mcp-verify": "0.8.1",

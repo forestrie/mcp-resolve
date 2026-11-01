@@ -21,8 +21,8 @@ importers:
         specifier: 3.3.0
         version: 3.3.0
       '@forestrie/scrapi-client':
-        specifier: 0.2.4
-        version: 0.2.4
+        specifier: 0.2.5
+        version: 0.2.5
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.6.4)
@@ -228,9 +228,6 @@ packages:
   '@forestrie/encoding@0.10.0':
     resolution: {integrity: sha512-3/nPSy654HmcLOwFgKbxXzMlzy6cWmqqR6FKJnGIrOTBWyP1U5jddFtrCOCRp7BPBJLHL1dfOtbWQs2ITB7yYw==}
 
-  '@forestrie/encoding@0.9.1':
-    resolution: {integrity: sha512-hvZQDSM2xDTiSMwznyeK15gf9+Sqt5I5V8WojBwchku1KWcznLb4uN2rk7CXv9W3rXzAYfY7+xl4RGXfSvWHPQ==}
-
   '@forestrie/mcp-verify@0.8.1':
     resolution: {integrity: sha512-X7XBNUZIUNmQSsSsWSqJiN9QzilKYGxKFiEx7Wh0wydKiYcvLUBwMZU086WkS3fIm2FEH3bh45HNbESxgscRdw==}
     engines: {node: '>=20.11.0'}
@@ -242,8 +239,8 @@ packages:
   '@forestrie/receipt-verify@3.3.0':
     resolution: {integrity: sha512-hj4e/8CfmfKGBbubcIRmIVIcz78HemiEgtpRdXT2+VDBQKqgrV1qwL4/OWRH7Hl8qx8qqzPFzZ3+zbIs43lUGg==}
 
-  '@forestrie/scrapi-client@0.2.4':
-    resolution: {integrity: sha512-zRb5m1wefvvfRdaDuH/0JY9jjoflkkrnTAijTP0IWoCIyG6VvcgvIe6zwU9TtH0MFjQQz/2xlPBbo9JTGfesZQ==}
+  '@forestrie/scrapi-client@0.2.5':
+    resolution: {integrity: sha512-DkEiLEMJs1EqqaJz08ApQzvngeBENvYy6pvPiGJOuB+iJnjl5Xcknb2HTi0lYjRA0DGogk24sY0R8avXF6kFcA==}
 
   '@hono/node-server@2.1.1':
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
@@ -1133,10 +1130,6 @@ snapshots:
     dependencies:
       '@noble/curves': 1.9.7
 
-  '@forestrie/encoding@0.9.1':
-    dependencies:
-      '@noble/curves': 1.9.7
-
   '@forestrie/mcp-verify@0.8.1':
     dependencies:
       '@forestrie/encoding': 0.10.0
@@ -1158,9 +1151,9 @@ snapshots:
       '@forestrie/merklelog': 0.6.0
       '@noble/hashes': 1.8.0
 
-  '@forestrie/scrapi-client@0.2.4':
+  '@forestrie/scrapi-client@0.2.5':
     dependencies:
-      '@forestrie/encoding': 0.9.1
+      '@forestrie/encoding': 0.10.0
 
   '@hono/node-server@2.1.1(hono@4.13.7)':
     dependencies:

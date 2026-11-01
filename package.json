@@ -92,7 +92,7 @@
     "@forestrie/encoding": "0.10.0",
     "@forestrie/mcp-verify": "0.8.1",
     "@forestrie/receipt-verify": "3.3.0",
-    "@forestrie/scrapi-client": "0.2.4",
+    "@forestrie/scrapi-client": "0.2.5",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@noble/hashes": "1.8.0",
     "zod": "^4.5.4"
